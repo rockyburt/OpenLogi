@@ -226,6 +226,17 @@ Common device fields are:
   [devices."serial:2503wdn0ly88".key_labels]
   gridTopMiddle = "~"
   ```
+- `key_icons` for the same keypads: the glyph a key shows in place of its
+  action's own, keyed like `key_labels` and named like an Actions Ring slot's
+  `icon` (`"Microphone"`, `"Keyboard"`, …). Every shell command shows the
+  terminal glyph, so name one here for a command that does something
+  specific. The glyph is drawn alone, or small above the key's label; only a
+  bound key shows it:
+
+  ```toml
+  [devices."serial:2503wdn0ly88".key_icons]
+  gridTopLeft = "Microphone"
+  ```
 - `lighting`, `smartshift`, and camera controls / profiles
 - `camera_stream_mode`: the live preview's mode, a table of `width`, `height`
   (pixels) and `fps`. All three are required and must be positive, or the file

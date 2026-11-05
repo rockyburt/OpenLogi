@@ -1373,6 +1373,52 @@ fn keypad_key_labels_replace_a_bound_key_face_on_its_page() {
     );
 }
 
+/// A glyph the user set for a key replaces its action's glyph, alone or
+/// above the key's label, and never lights a key that does nothing.
+#[test]
+fn keypad_key_icons_replace_the_action_glyph() {
+    use crate::watchers::key_display::KeyFace;
+    use crate::watchers::key_display::render::KeyLabel;
+    use openlogi_core::binding::ActionRingIcon;
+
+    let mut config = Config::default();
+    let top_left = ButtonId::grid(GridKey::TopLeft);
+    config.set_binding(
+        "keypad",
+        top_left,
+        Binding::Single(Action::RunShellCommand("true".into())),
+    );
+    config.set_key_icon("keypad", top_left, Some(ActionRingIcon::Microphone));
+    config.set_key_label("keypad", top_left, Some("Dictate".into()));
+    let middle = ButtonId::grid(GridKey::Middle);
+    config.set_binding("keypad", middle, Binding::Single(Action::Copy));
+    config.set_key_icon("keypad", middle, Some(ActionRingIcon::Star));
+    config.set_key_icon(
+        "keypad",
+        ButtonId::grid(GridKey::BottomRight),
+        Some(ActionRingIcon::Bell),
+    );
+    let mut orch = orchestrator(config);
+    orch.devices = vec![wired_keypad("keypad", true)];
+
+    let specs = orch.key_display_specs_for();
+    let [spec] = specs.as_slice() else {
+        panic!("one keypad publishes one spec: {specs:?}");
+    };
+    assert_eq!(
+        spec.faces[&GridKey::TopLeft],
+        KeyFace::Label {
+            icon: ActionRingIcon::Microphone,
+            text: KeyLabel::new("Dictate").expect("fits a key"),
+        }
+    );
+    assert_eq!(
+        spec.faces[&GridKey::Middle],
+        KeyFace::Icon(ActionRingIcon::Star)
+    );
+    assert_eq!(spec.faces[&GridKey::BottomRight], KeyFace::Blank);
+}
+
 /// Only a device whose panel the registry describes gets a spec — a bound
 /// numpad-kind device on another route does not — and a keypad that is
 /// offline or disabled publishes nothing to paint.

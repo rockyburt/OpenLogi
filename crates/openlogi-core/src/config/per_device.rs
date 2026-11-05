@@ -121,6 +121,37 @@ impl Config {
             .unwrap_or_default()
     }
 
+    /// The keypad key glyphs for `device_key`, keyed like its bindings, or an
+    /// empty map if it has none (see
+    /// [`DeviceConfig::key_icons`](super::DeviceConfig::key_icons)).
+    #[must_use]
+    pub fn key_icons(&self, device_key: &str) -> BTreeMap<ButtonId, ActionRingIcon> {
+        self.devices
+            .get(device_key)
+            .map(|d| d.key_icons.clone())
+            .unwrap_or_default()
+    }
+
+    /// Set the glyph `button` shows on `device_key`'s keypad, or clear it
+    /// with `None` (see
+    /// [`DeviceConfig::key_icons`](super::DeviceConfig::key_icons)).
+    pub fn set_key_icon(
+        &mut self,
+        device_key: &str,
+        button: ButtonId,
+        icon: Option<ActionRingIcon>,
+    ) {
+        let icons = &mut self
+            .devices
+            .entry(device_key.to_string())
+            .or_default()
+            .key_icons;
+        match icon {
+            Some(icon) => icons.insert(button, icon),
+            None => icons.remove(&button),
+        };
+    }
+
     /// Set the label `button` shows on `device_key`'s keypad, or clear it with
     /// `None` (see [`DeviceConfig::key_labels`](super::DeviceConfig::key_labels)).
     pub fn set_key_label(&mut self, device_key: &str, button: ButtonId, label: Option<String>) {
