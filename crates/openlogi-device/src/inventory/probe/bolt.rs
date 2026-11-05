@@ -27,7 +27,7 @@ use crate::host_lock::ReceiverRegisterPhase;
 use crate::inventory::cache::{CacheKey, CacheOutcome, ProbeTarget, probe_or_reuse, seen};
 use crate::inventory::events::EventSubscriptionHandle;
 use crate::inventory::features::ProbedFeatures;
-use crate::inventory::mappings::{map_kind, resolve_device_kind};
+use crate::inventory::mappings::{bolt_identity_kind, map_kind, resolve_device_kind};
 
 /// Probe a Bolt receiver under its register phase, which is dropped once the
 /// register reads are done: the slot walks that follow address each device
@@ -238,7 +238,9 @@ async fn read_bolt_slot_identity(
         codename,
         id,
         online,
-        register_kind: map_kind(bolt_kind),
+        // A curated identity outranks the register's coarse kind byte (the
+        // MX Creative Dialpad pairs as a headset).
+        register_kind: bolt_identity_kind(pairing.wpid).unwrap_or_else(|| map_kind(bolt_kind)),
         wpid,
     })
 }

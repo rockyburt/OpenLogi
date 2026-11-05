@@ -1277,3 +1277,40 @@ fn switching_the_app_profile_drops_a_draft_for_the_old_one(cx: &mut gpui::TestAp
         });
     });
 }
+
+fn stock_dialpad_asset(png: (u32, u32)) -> ResolvedAsset {
+    ResolvedAsset {
+        depot: "mx_creative_dialpad".into(),
+        ..stock_keypad_asset(png)
+    }
+}
+
+/// The Dialpad's depot marks none of its keys, so the stock render places
+/// all four `0x1b04` controls on the photo — never a keyboard's F-row.
+#[test]
+fn the_dialpad_shows_its_four_keys_on_the_stock_render() {
+    let KeySurface::Photo(slots) =
+        key_surface(Some(&stock_dialpad_asset((1124, 1105))), None, None)
+    else {
+        panic!("the stock Dialpad render maps the keys onto the photo");
+    };
+    let targets: Vec<_> = slots.iter().map(|slot| slot.target.clone()).collect();
+    assert_eq!(
+        targets,
+        [0x0053, 0x0056, 0x0059, 0x005a]
+            .map(|cid| KeyTarget::Control(ButtonId::control(cid)))
+            .to_vec()
+    );
+    for slot in &slots {
+        assert!((0.0..1.0).contains(&slot.point.x_frac), "{slot:?}");
+        assert!((0.0..1.0).contains(&slot.point.y_frac), "{slot:?}");
+    }
+
+    let restaged = key_slots(Some(&stock_dialpad_asset((800, 800))), None);
+    assert!(
+        restaged
+            .iter()
+            .all(|slot| !matches!(slot.target, KeyTarget::Control(_))),
+        "a re-staged render is not the one measured"
+    );
+}
