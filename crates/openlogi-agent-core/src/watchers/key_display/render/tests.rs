@@ -65,7 +65,18 @@ fn a_zero_sized_tile_is_refused() {
 }
 
 fn label(text: &str) -> KeyFace {
-    KeyFace::Label(KeyLabel::new(text).unwrap_or_else(|| panic!("{text:?} fits a key")))
+    KeyFace::Label {
+        icon: ActionRingIcon::Keyboard,
+        text: KeyLabel::new(text).unwrap_or_else(|| panic!("{text:?} fits a key")),
+    }
+}
+
+/// Bright pixels in the rows `top..bottom`.
+fn bright_rows(image: &RgbImage, top: u32, bottom: u32) -> usize {
+    image
+        .enumerate_pixels()
+        .filter(|(_, y, pixel)| (top..bottom).contains(y) && luma(**pixel) > 200)
+        .count()
 }
 
 /// Bright pixels anywhere, and how many lie within `margin` of an edge.
@@ -143,4 +154,37 @@ fn a_label_with_markup_characters_renders() {
     for text in ["<", "&", "\"'", "a<b>&c"] {
         render_tile(&label(text), KEY).unwrap_or_else(|error| panic!("{text:?}: {error}"));
     }
+}
+
+/// A labelled face keeps the action's glyph, small, above its text: the
+/// glyph alone fills the top band, the text alone the bottom one, and the
+/// glyph is what tells two labels for different actions apart.
+#[test]
+fn a_label_sits_under_a_small_copy_of_the_glyph() {
+    let side = u32::from(KEY);
+    let image = decode(&render_tile(&label("~"), KEY).unwrap());
+    let icon_bottom = side * 38 / 100;
+    let text_top = side * 44 / 100;
+    assert!(
+        bright_rows(&image, 0, icon_bottom) > 20,
+        "no glyph above the text"
+    );
+    assert!(
+        bright_rows(&image, text_top, side) > 20,
+        "no text below the glyph"
+    );
+    assert_eq!(
+        bright_rows(&image, icon_bottom + 2, text_top - 2),
+        0,
+        "glyph and text run together"
+    );
+
+    let copy = KeyFace::Label {
+        icon: ActionRingIcon::Copy,
+        text: KeyLabel::new("~").unwrap(),
+    };
+    assert_ne!(
+        decode(&render_tile(&copy, KEY).unwrap()).into_raw(),
+        image.into_raw()
+    );
 }
