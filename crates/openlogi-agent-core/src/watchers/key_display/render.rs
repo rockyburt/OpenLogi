@@ -2,9 +2,10 @@
 //!
 //! Pure CPU work with no device I/O: the action's embedded icon (the same
 //! glyph the settings app and the Actions Ring draw) — or, for a key that
-//! sends a keyboard shortcut, the shortcut's text — is rendered white on
-//! black, centred in a tile the size the panel's keys are, and encoded as
-//! the baseline JPEG the vendor image write carries.
+//! sends a keyboard shortcut or carries a label, that icon small with the
+//! text under it — is rendered white on black, in a tile the size the
+//! panel's keys are, and encoded as the baseline JPEG the vendor image write
+//! carries.
 
 use std::io::Cursor;
 use std::sync::{Arc, LazyLock};
@@ -24,10 +25,17 @@ pub enum KeyFace {
     Blank,
     /// The glyph of the action the key is bound to.
     Icon(ActionRingIcon),
-    /// Text in place of a glyph: what a shortcut key sends. Every shortcut
-    /// shares the one keyboard glyph, so two keys bound to different
-    /// shortcuts would otherwise look identical.
-    Label(KeyLabel),
+    /// Text under a small copy of the action's glyph: what a shortcut key
+    /// sends, or the label the user gave the key. Every shortcut shares the
+    /// one keyboard glyph, so two keys bound to different shortcuts would
+    /// otherwise look identical; the glyph still says what kind of key it is.
+    Label {
+        /// The glyph of the action the key is bound to, drawn small above
+        /// the text.
+        icon: ActionRingIcon,
+        /// The text.
+        text: KeyLabel,
+    },
 }
 
 /// Text a key face can show: short enough to stay legible on a key, and
@@ -96,16 +104,46 @@ const GLYPH_SCALE: f32 = 0.55;
 /// Encoder quality for a flat two-tone glyph: high enough that the stroke
 /// edges stay clean, while a tile stays near 1–2 KiB, one image packet.
 const JPEG_QUALITY: u8 = 90;
-/// Share of the tile's side a label may span, wider than a glyph's: text
-/// is read, not recognised, and needs every pixel the bezel allows.
-const LABEL_SCALE: f32 = 0.8;
+/// A labelled face's glyph: its side and its top edge, as shares of the
+/// tile's side. Small, so the text below it gets most of the key.
+const LABEL_ICON_SCALE: f32 = 0.28;
+const LABEL_ICON_TOP: f32 = 0.1;
+/// The band a labelled face's text is fitted into, as shares of the tile's
+/// side: wider than a glyph, since text is read rather than recognised and
+/// needs every pixel the bezel allows.
+const LABEL_TEXT_TOP: f32 = 0.44;
+const LABEL_TEXT_BOTTOM: f32 = 0.9;
+const LABEL_TEXT_WIDTH: f32 = 0.84;
 /// A label's largest font size, as a share of the tile's side. Short text
-/// draws at this size; longer text shrinks to fit [`LABEL_SCALE`].
-const LABEL_FONT_SCALE: f32 = 0.42;
+/// draws at this size; longer text shrinks to fit the band.
+const LABEL_FONT_SCALE: f32 = 0.34;
 /// The largest font size for a label of one character. Punctuation such as
-/// `` ` `` is a few pixels tall at [`LABEL_FONT_SCALE`] — a key's whole face
-/// is free, so a lone character uses it.
-const LABEL_CHAR_FONT_SCALE: f32 = 0.75;
+/// `` ` `` is a few pixels tall at [`LABEL_FONT_SCALE`], so a lone character
+/// draws as large as the band allows.
+const LABEL_CHAR_FONT_SCALE: f32 = 0.9;
+
+/// A square-or-not area of the tile, in pixels, that a drawing is fitted
+/// into and centred in.
+#[derive(Clone, Copy)]
+struct Area {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl Area {
+    /// A `width`-wide area centred across a `side`-pixel tile, from `top` to
+    /// `bottom` (all shares of `side`).
+    fn band(side: f32, width: f32, top: f32, bottom: f32) -> Self {
+        Self {
+            x: side * (1.0 - width) / 2.0,
+            y: side * top,
+            width: side * width,
+            height: side * (bottom - top),
+        }
+    }
+}
 
 /// DejaVu Sans Bold, subset to printable ASCII — the exact range
 /// [`KeyLabel::new`] admits. Embedded rather than looked up so a label renders
@@ -126,23 +164,52 @@ pub fn render_tile(face: &KeyFace, size: u16) -> Result<KeyImageJpeg, RenderErro
     let mut pixmap = tiny_skia::Pixmap::new(u32::from(size), u32::from(size))
         .ok_or(RenderError::TileSize(size))?;
     pixmap.fill(tiny_skia::Color::BLACK);
+    let tile_side = side_of(&pixmap);
     match face {
         KeyFace::Blank => {}
-        KeyFace::Icon(icon) => draw_icon(&mut pixmap, *icon)?,
-        KeyFace::Label(label) => draw_label(&mut pixmap, label)?,
+        KeyFace::Icon(icon) => {
+            let margin = (1.0 - GLYPH_SCALE) / 2.0;
+            let area = Area::band(tile_side, GLYPH_SCALE, margin, 1.0 - margin);
+            draw_icon(&mut pixmap, *icon, area)?;
+        }
+        KeyFace::Label { icon, text } => {
+            let icon_area = Area::band(
+                tile_side,
+                LABEL_ICON_SCALE,
+                LABEL_ICON_TOP,
+                LABEL_ICON_TOP + LABEL_ICON_SCALE,
+            );
+            draw_icon(&mut pixmap, *icon, icon_area)?;
+            let text_area = Area::band(
+                tile_side,
+                LABEL_TEXT_WIDTH,
+                LABEL_TEXT_TOP,
+                LABEL_TEXT_BOTTOM,
+            );
+            draw_label(&mut pixmap, text, text_area)?;
+        }
     }
     encode(&pixmap, size)
 }
 
-/// Draw `label` white, centred, at [`LABEL_FONT_SCALE`] (or
-/// [`LABEL_CHAR_FONT_SCALE`] for one character) or smaller, so it fits
-/// [`LABEL_SCALE`] of the tile.
-fn draw_label(pixmap: &mut tiny_skia::Pixmap, label: &KeyLabel) -> Result<(), RenderError> {
+/// The tile's side in pixels.
+fn side_of(pixmap: &tiny_skia::Pixmap) -> f32 {
     #[expect(
         clippy::cast_precision_loss,
         reason = "tile sides are a few hundred pixels, exact in f32"
     )]
     let side = pixmap.width() as f32;
+    side
+}
+
+/// Draw `label` white, centred in `area`, at [`LABEL_FONT_SCALE`] (or
+/// [`LABEL_CHAR_FONT_SCALE`] for one character) or smaller, so it fits.
+fn draw_label(
+    pixmap: &mut tiny_skia::Pixmap,
+    label: &KeyLabel,
+    area: Area,
+) -> Result<(), RenderError> {
+    let side = side_of(pixmap);
     let font_scale = if label.as_str().chars().count() == 1 {
         LABEL_CHAR_FONT_SCALE
     } else {
@@ -178,10 +245,11 @@ fn draw_label(pixmap: &mut tiny_skia::Pixmap, label: &KeyLabel) -> Result<(), Re
         })
         .filter(|bounds| bounds.width() > 0.0 && bounds.height() > 0.0)
         .ok_or_else(|| laid_out("no glyphs were drawn".to_owned()))?;
-    let room = side * LABEL_SCALE;
-    let scale = (room / bounds.width()).min(room / bounds.height()).min(1.0);
-    let offset_x = (side - bounds.width() * scale) / 2.0 - bounds.x() * scale;
-    let offset_y = (side - bounds.height() * scale) / 2.0 - bounds.y() * scale;
+    let scale = (area.width / bounds.width())
+        .min(area.height / bounds.height())
+        .min(1.0);
+    let offset_x = area.x + (area.width - bounds.width() * scale) / 2.0 - bounds.x() * scale;
+    let offset_y = area.y + (area.height - bounds.height() * scale) / 2.0 - bounds.y() * scale;
     let transform =
         tiny_skia::Transform::from_scale(scale, scale).post_translate(offset_x, offset_y);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
@@ -204,7 +272,12 @@ fn escape_xml(text: &str) -> String {
     escaped
 }
 
-fn draw_icon(pixmap: &mut tiny_skia::Pixmap, icon: ActionRingIcon) -> Result<(), RenderError> {
+/// Draw `icon` white, as large as fits `area` and centred in it.
+fn draw_icon(
+    pixmap: &mut tiny_skia::Pixmap,
+    icon: ActionRingIcon,
+    area: Area,
+) -> Result<(), RenderError> {
     let path = icon.asset_path();
     let svg =
         openlogi_ui::action_icons::embedded_icon(path).ok_or(RenderError::MissingIcon(path))?;
@@ -217,15 +290,10 @@ fn draw_icon(pixmap: &mut tiny_skia::Pixmap, icon: ActionRingIcon) -> Result<(),
             message: error.to_string(),
         }
     })?;
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "tile sides are a few hundred pixels, exact in f32"
-    )]
-    let side = pixmap.width() as f32;
     let glyph = tree.size();
-    let scale = side * GLYPH_SCALE / glyph.width().max(glyph.height());
-    let offset_x = (side - glyph.width() * scale) / 2.0;
-    let offset_y = (side - glyph.height() * scale) / 2.0;
+    let scale = (area.width / glyph.width()).min(area.height / glyph.height());
+    let offset_x = area.x + (area.width - glyph.width() * scale) / 2.0;
+    let offset_y = area.y + (area.height - glyph.height() * scale) / 2.0;
     let transform =
         tiny_skia::Transform::from_scale(scale, scale).post_translate(offset_x, offset_y);
     resvg::render(&tree, transform, &mut pixmap.as_mut());

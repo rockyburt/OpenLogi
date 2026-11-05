@@ -1296,7 +1296,10 @@ fn keypad_shortcut_keys_show_their_chord_rather_than_one_shared_glyph() {
     let [spec] = specs.as_slice() else {
         panic!("one keypad publishes one spec: {specs:?}");
     };
-    let label = |text: &str| KeyFace::Label(KeyLabel::new(text).expect("fits a key"));
+    let label = |text: &str| KeyFace::Label {
+        icon: ActionRingIcon::Keyboard,
+        text: KeyLabel::new(text).expect("fits a key"),
+    };
     assert_eq!(spec.faces[&GridKey::TopMiddle], label("Shift+`"));
     assert_eq!(spec.faces[&GridKey::TopRight], label("`"));
     assert_eq!(
@@ -1357,7 +1360,10 @@ fn keypad_key_labels_replace_a_bound_key_face_on_its_page() {
     let [spec] = specs.as_slice() else {
         panic!("one keypad publishes one spec: {specs:?}");
     };
-    let label = |text: &str| KeyFace::Label(KeyLabel::new(text).expect("fits a key"));
+    let label = |text: &str| KeyFace::Label {
+        icon: ActionRingIcon::Keyboard,
+        text: KeyLabel::new(text).expect("fits a key"),
+    };
     assert_eq!(spec.faces[&GridKey::TopMiddle], label("~"));
     assert_eq!(spec.faces[&GridKey::TopRight], KeyFace::Blank);
     assert_eq!(spec.faces[&GridKey::BottomLeft], label("F5"));

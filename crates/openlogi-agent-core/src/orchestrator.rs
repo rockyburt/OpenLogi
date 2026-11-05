@@ -2454,7 +2454,9 @@ fn is_bound_key(binding: &Binding) -> bool {
 /// What a keypad grid key shows for `binding`, given the user's `label` for
 /// it: blank exactly when the key does nothing; else `label` when a key can
 /// draw it; else the shortcut's text when [`Binding::key_action`] sends a key
-/// chord and that text fits a key; else the action's glyph.
+/// chord and that text fits a key; else the action's glyph. Text is drawn
+/// under a small copy of the action's glyph, which keeps saying what kind of
+/// key it is — a shortcut, say, rather than a command.
 ///
 /// Every chord action shares the one keyboard glyph, so without its text two
 /// keys bound to different shortcuts are indistinguishable on the panel. The
@@ -2465,8 +2467,9 @@ fn key_face(binding: Option<&Binding>, label: Option<&str>) -> KeyFace {
     let Some(action) = binding.and_then(Binding::key_action) else {
         return KeyFace::Blank;
     };
-    if let Some(label) = label.and_then(KeyLabel::new) {
-        return KeyFace::Label(label);
+    let icon = ActionRingIcon::for_action(&action);
+    if let Some(text) = label.and_then(KeyLabel::new) {
+        return KeyFace::Label { icon, text };
     }
     let chord = matches!(
         action,
@@ -2475,10 +2478,7 @@ fn key_face(binding: Option<&Binding>, label: Option<&str>) -> KeyFace {
     chord
         .then(|| KeyLabel::new(&action.label()))
         .flatten()
-        .map_or_else(
-            || KeyFace::Icon(ActionRingIcon::for_action(&action)),
-            KeyFace::Label,
-        )
+        .map_or(KeyFace::Icon(icon), |text| KeyFace::Label { icon, text })
 }
 
 /// Which of `bindings` the keyboard capture session takes over.
