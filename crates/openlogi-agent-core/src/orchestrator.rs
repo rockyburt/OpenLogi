@@ -16,7 +16,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
 use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::{
-    ActionRingIcon, Binding, ButtonId, GamingButtons, GamingLayout, GridKey, KeypadPage, ModeKey,
+    Action, ActionRingIcon, Binding, ButtonId, GamingButtons, GamingLayout, GridKey, KeypadPage,
+    ModeKey,
 };
 use openlogi_core::bindings::{bindings_on_page, button_bindings_for, oshook_gestures_for};
 use openlogi_core::config::{
@@ -60,6 +61,7 @@ use crate::runtime::scroll::ScrollPreferences;
 use crate::runtime::{PageTurn, PointerSelection};
 use crate::watchers::host_switch::{HostSwitchLink, HostSwitchLinks};
 use crate::watchers::inventory::InventoryRefresh;
+use crate::watchers::key_display::render::KeyLabel;
 use crate::watchers::key_display::{KeyDisplaySpec, KeyFace, SharedKeyDisplaySpecs};
 use crate::watchers::keyboard::{KeyboardSpec, SharedKeyboardSpecs};
 use crate::watchers::light::{WatchedLight, WatchedLights};
@@ -2440,20 +2442,36 @@ fn is_bound_key(binding: &Binding) -> bool {
 }
 
 /// What a keypad grid key shows for `binding`: blank exactly when the key does
-/// nothing, else the glyph of [`Binding::key_action`].
+/// nothing; the shortcut's text when [`Binding::key_action`] sends a key chord
+/// and that text fits a key; else the action's glyph.
+///
+/// Every chord action shares the one keyboard glyph, so without its text two
+/// keys bound to different shortcuts are indistinguishable on the panel. The
+/// text is [`Action::label`], the same one the settings app shows.
 fn key_face(binding: Option<&Binding>) -> KeyFace {
     binding
         .and_then(Binding::key_action)
         .map_or(KeyFace::Blank, |action| {
-            KeyFace::Icon(ActionRingIcon::for_action(&action))
+            let chord = matches!(
+                action,
+                Action::CustomShortcut(_)
+                    | Action::HoldShortcut(_)
+                    | Action::TapKeyHoldingModifiers(_)
+            );
+            chord
+                .then(|| KeyLabel::new(&action.label()))
+                .flatten()
+                .map_or_else(
+                    || KeyFace::Icon(ActionRingIcon::for_action(&action)),
+                    KeyFace::Label,
+                )
         })
 }
 
 /// Which of `bindings` the keyboard capture session takes over.
 ///
 /// A control is diverted whenever it is stored at all, even as
-/// [`Action::None`](openlogi_core::binding::Action::None) (which means
-/// "suppress this key," not "leave native"):
+/// [`Action::None`] (which means "suppress this key," not "leave native"):
 /// `button_bindings_for` seeds no default for a [`ButtonId::Control`], so
 /// presence here is always an explicit user choice (#1747). A keypad grid key
 /// is only observed — the session never diverts it, so it cannot suppress the

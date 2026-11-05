@@ -1,11 +1,13 @@
 //! Rasterize a key face into the JPEG tile a keypad's LCD key displays.
 //!
 //! Pure CPU work with no device I/O: the action's embedded icon (the same
-//! glyph the settings app and the Actions Ring draw) is rendered white on
+//! glyph the settings app and the Actions Ring draw) — or, for a key that
+//! sends a keyboard shortcut, the shortcut's text — is rendered white on
 //! black, centred in a tile the size the panel's keys are, and encoded as
 //! the baseline JPEG the vendor image write carries.
 
 use std::io::Cursor;
+use std::sync::{Arc, LazyLock};
 
 use image::ExtendedColorType;
 use image::ImageEncoder as _;
@@ -16,12 +18,44 @@ use resvg::{tiny_skia, usvg};
 use thiserror::Error;
 
 /// What one LCD key shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KeyFace {
     /// Nothing — the key is unbound, so it does nothing and shows nothing.
     Blank,
     /// The glyph of the action the key is bound to.
     Icon(ActionRingIcon),
+    /// Text in place of a glyph: what a shortcut key sends. Every shortcut
+    /// shares the one keyboard glyph, so two keys bound to different
+    /// shortcuts would otherwise look identical.
+    Label(KeyLabel),
+}
+
+/// Text a key face can show: short enough to stay legible on a key, and
+/// drawn only from characters the embedded label font covers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct KeyLabel(String);
+
+impl KeyLabel {
+    /// Longest label a key shows. Past this the text shrinks below a size
+    /// that reads at arm's length, and the action's glyph says more.
+    pub const MAX_CHARS: usize = 12;
+
+    /// `text` as a label, or `None` when a key could not show it legibly:
+    /// empty or blank, longer than [`Self::MAX_CHARS`], or using a character
+    /// outside printable ASCII, which the embedded font does not cover.
+    #[must_use]
+    pub fn new(text: &str) -> Option<Self> {
+        let printable = text.chars().all(|c| matches!(c, ' '..='~'));
+        let visible = text.chars().any(|c| c != ' ');
+        (printable && visible && text.chars().count() <= Self::MAX_CHARS)
+            .then(|| Self(text.to_owned()))
+    }
+
+    /// The label's text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Why a face could not be turned into a tile. Every arm is a defect in the
@@ -39,6 +73,14 @@ pub enum RenderError {
         /// The parser's message.
         message: String,
     },
+    /// A label's text could not be laid out as glyphs.
+    #[error("label {text:?} could not be laid out: {message}")]
+    Label {
+        /// The label's text.
+        text: String,
+        /// What went wrong.
+        message: String,
+    },
     /// The tile size cannot be rasterized.
     #[error("cannot rasterize a {0}-pixel tile")]
     TileSize(u16),
@@ -54,16 +96,112 @@ const GLYPH_SCALE: f32 = 0.55;
 /// Encoder quality for a flat two-tone glyph: high enough that the stroke
 /// edges stay clean, while a tile stays near 1–2 KiB, one image packet.
 const JPEG_QUALITY: u8 = 90;
+/// Share of the tile's side a label may span, wider than a glyph's: text
+/// is read, not recognised, and needs every pixel the bezel allows.
+const LABEL_SCALE: f32 = 0.8;
+/// A label's largest font size, as a share of the tile's side. Short text
+/// draws at this size; longer text shrinks to fit [`LABEL_SCALE`].
+const LABEL_FONT_SCALE: f32 = 0.42;
+/// The largest font size for a label of one character. Punctuation such as
+/// `` ` `` is a few pixels tall at [`LABEL_FONT_SCALE`] — a key's whole face
+/// is free, so a lone character uses it.
+const LABEL_CHAR_FONT_SCALE: f32 = 0.75;
+
+/// DejaVu Sans Bold, subset to printable ASCII — the exact range
+/// [`KeyLabel::new`] admits. Embedded rather than looked up so a label renders
+/// the same on every host, including one with no fonts installed.
+static LABEL_FONT: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSans-Bold-ascii.ttf");
+/// The family name the embedded font declares.
+const LABEL_FONT_FAMILY: &str = "DejaVu Sans";
+
+/// A font database holding only [`LABEL_FONT`], built on first use.
+static LABEL_FONTS: LazyLock<Arc<usvg::fontdb::Database>> = LazyLock::new(|| {
+    let mut fonts = usvg::fontdb::Database::new();
+    fonts.load_font_data(LABEL_FONT.to_vec());
+    Arc::new(fonts)
+});
 
 /// Render `face` as a `size`-square tile.
-pub fn render_tile(face: KeyFace, size: u16) -> Result<KeyImageJpeg, RenderError> {
+pub fn render_tile(face: &KeyFace, size: u16) -> Result<KeyImageJpeg, RenderError> {
     let mut pixmap = tiny_skia::Pixmap::new(u32::from(size), u32::from(size))
         .ok_or(RenderError::TileSize(size))?;
     pixmap.fill(tiny_skia::Color::BLACK);
-    if let KeyFace::Icon(icon) = face {
-        draw_icon(&mut pixmap, icon)?;
+    match face {
+        KeyFace::Blank => {}
+        KeyFace::Icon(icon) => draw_icon(&mut pixmap, *icon)?,
+        KeyFace::Label(label) => draw_label(&mut pixmap, label)?,
     }
     encode(&pixmap, size)
+}
+
+/// Draw `label` white, centred, at [`LABEL_FONT_SCALE`] (or
+/// [`LABEL_CHAR_FONT_SCALE`] for one character) or smaller, so it fits
+/// [`LABEL_SCALE`] of the tile.
+fn draw_label(pixmap: &mut tiny_skia::Pixmap, label: &KeyLabel) -> Result<(), RenderError> {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "tile sides are a few hundred pixels, exact in f32"
+    )]
+    let side = pixmap.width() as f32;
+    let font_scale = if label.as_str().chars().count() == 1 {
+        LABEL_CHAR_FONT_SCALE
+    } else {
+        LABEL_FONT_SCALE
+    };
+    let font_size = side * font_scale;
+    // Laid out at the origin and placed afterwards by its measured bounds,
+    // which centres the glyphs themselves rather than the font's line box.
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{side}" height="{side}"><text x="0" y="{font_size}" font-family="{LABEL_FONT_FAMILY}" font-weight="bold" font-size="{font_size}" fill="#ffffff" xml:space="preserve">{}</text></svg>"##,
+        escape_xml(label.as_str())
+    );
+    let options = usvg::Options {
+        fontdb: Arc::clone(&LABEL_FONTS),
+        font_family: LABEL_FONT_FAMILY.to_owned(),
+        ..usvg::Options::default()
+    };
+    let laid_out = |message: String| RenderError::Label {
+        text: label.as_str().to_owned(),
+        message,
+    };
+    let tree = usvg::Tree::from_str(&svg, &options).map_err(|error| laid_out(error.to_string()))?;
+    // The glyph outlines' bounds, not the text element's: SVG's text box is
+    // the font's line box, which would park a high glyph such as `` ` `` at
+    // the top of the key.
+    let bounds = tree
+        .root()
+        .children()
+        .iter()
+        .find_map(|node| match node {
+            usvg::Node::Text(text) => Some(text.flattened().abs_bounding_box()),
+            _ => None,
+        })
+        .filter(|bounds| bounds.width() > 0.0 && bounds.height() > 0.0)
+        .ok_or_else(|| laid_out("no glyphs were drawn".to_owned()))?;
+    let room = side * LABEL_SCALE;
+    let scale = (room / bounds.width()).min(room / bounds.height()).min(1.0);
+    let offset_x = (side - bounds.width() * scale) / 2.0 - bounds.x() * scale;
+    let offset_y = (side - bounds.height() * scale) / 2.0 - bounds.y() * scale;
+    let transform =
+        tiny_skia::Transform::from_scale(scale, scale).post_translate(offset_x, offset_y);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    Ok(())
+}
+
+/// `text` with the characters XML gives meaning to escaped.
+fn escape_xml(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }
 
 fn draw_icon(pixmap: &mut tiny_skia::Pixmap, icon: ActionRingIcon) -> Result<(), RenderError> {

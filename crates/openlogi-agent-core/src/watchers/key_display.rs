@@ -67,7 +67,7 @@ const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 struct Paint<'a> {
     spec: &'a KeyDisplaySpec,
     key: GridKey,
-    face: KeyFace,
+    face: &'a KeyFace,
 }
 
 /// What the watcher believes is on one panel.
@@ -99,7 +99,7 @@ fn unpainted<'a>(
         .map(move |(key, face)| Paint {
             spec,
             key: *key,
-            face: *face,
+            face,
         })
 }
 
@@ -175,7 +175,7 @@ impl Painted {
             .find(|panel| panel.route == spec.route)
         {
             Some(panel) if panel.generation == spec.generation => {
-                panel.faces.insert(paint.key, paint.face);
+                panel.faces.insert(paint.key, paint.face.clone());
             }
             // A newer generation was planned meanwhile: this paint predates a
             // reset, so it proves nothing about the panel now.
@@ -183,7 +183,7 @@ impl Painted {
             None => self.panels.push(PaintedPanel {
                 route: spec.route.clone(),
                 generation: spec.generation,
-                faces: BTreeMap::from([(paint.key, paint.face)]),
+                faces: BTreeMap::from([(paint.key, paint.face.clone())]),
             }),
         }
     }
@@ -243,12 +243,13 @@ struct Tiles {
 }
 
 impl Tiles {
-    fn get(&mut self, face: KeyFace, size: u16) -> Result<Arc<KeyImageJpeg>, RenderError> {
-        if let Some(tile) = self.rendered.get(&(face, size)) {
+    fn get(&mut self, face: &KeyFace, size: u16) -> Result<Arc<KeyImageJpeg>, RenderError> {
+        let entry = (face.clone(), size);
+        if let Some(tile) = self.rendered.get(&entry) {
             return Ok(Arc::clone(tile));
         }
         let tile = Arc::new(render_tile(face, size)?);
-        self.rendered.insert((face, size), Arc::clone(&tile));
+        self.rendered.insert(entry, Arc::clone(&tile));
         Ok(tile)
     }
 
@@ -259,12 +260,12 @@ impl Tiles {
     /// A render failure is a defect in the artwork, not the device: rendering
     /// again cannot fix it, so the blank stands in for `face` until the
     /// binding changes.
-    fn get_or_blank(&mut self, face: KeyFace, size: u16) -> Option<Arc<KeyImageJpeg>> {
+    fn get_or_blank(&mut self, face: &KeyFace, size: u16) -> Option<Arc<KeyImageJpeg>> {
         match self.get(face, size) {
             Ok(tile) => Some(tile),
             Err(error) => {
                 warn!(%error, ?face, "key image could not be rendered — showing it blank");
-                self.get(KeyFace::Blank, size)
+                self.get(&KeyFace::Blank, size)
                     .inspect_err(|error| warn!(%error, "blank key image could not be rendered"))
                     .ok()
             }
