@@ -13,7 +13,8 @@ use super::settings::{
     ThumbwheelSensitivity, deserialize_gesture_owner,
 };
 use crate::binding::{
-    Action, ActionRingConfig, Binding, ButtonId, GKeyProfile, GestureDirection, KeypadPage,
+    Action, ActionRingConfig, ActionRingIcon, Binding, ButtonId, GKeyProfile, GestureDirection,
+    KeypadPage,
 };
 use crate::device::{Capabilities, DeviceKind, DeviceModelInfo, LightCapabilities};
 use crate::hid::{DisableKeysMask, Dpi, PointerSpeed, ReportRate};
@@ -260,6 +261,13 @@ pub struct DeviceConfig {
     /// it needed no schema bump.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub key_labels: BTreeMap<ButtonId, String>,
+    /// The glyph an LCD keypad key shows in place of its action's own, keyed
+    /// like [`Self::key_labels`]. For an action whose glyph only names its
+    /// kind: every shell command shows the terminal glyph, whatever the
+    /// command does. Drawn alone, or small above the key's label. Only a
+    /// bound key shows it. Optional, so it needed no schema bump.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub key_icons: BTreeMap<ButtonId, ActionRingIcon>,
     /// Ordered list of DPI presets cycled through by
     /// [`Action::CycleDpiPresets`] and indexed by
     /// [`Action::SetDpiPreset`]. Empty means "no presets configured" —
@@ -500,6 +508,7 @@ impl Default for DeviceConfig {
             per_app_bindings: BTreeMap::new(),
             action_ring: ActionRingConfig::default(),
             key_labels: BTreeMap::new(),
+            key_icons: BTreeMap::new(),
             dpi_presets: Vec::new(),
             dpi: None,
             lighting: None,
@@ -653,6 +662,8 @@ struct RawDeviceConfig {
     action_ring: ActionRingConfig,
     #[serde(default, deserialize_with = "deserialize_button_map")]
     key_labels: BTreeMap<ButtonId, String>,
+    #[serde(default, deserialize_with = "deserialize_button_map")]
+    key_icons: BTreeMap<ButtonId, ActionRingIcon>,
     #[serde(default, deserialize_with = "deserialize_dpi_presets")]
     dpi_presets: Vec<Dpi>,
     #[serde(default, deserialize_with = "deserialize_optional_dpi")]
@@ -753,6 +764,7 @@ impl From<RawDeviceConfig> for DeviceConfig {
             per_app_bindings: raw.per_app_bindings,
             action_ring: raw.action_ring,
             key_labels: raw.key_labels,
+            key_icons: raw.key_icons,
             dpi_presets: raw.dpi_presets,
             dpi: raw.dpi,
             lighting: raw.lighting,

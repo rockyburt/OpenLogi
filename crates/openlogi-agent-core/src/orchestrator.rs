@@ -1162,16 +1162,16 @@ impl Orchestrator {
                 );
                 // Labels are keyed like the bindings, so they follow the page
                 // by the same projection.
-                let labels = bindings_on_page(
-                    &self.config.key_labels(&dev.config_key),
-                    self.keypad_page(&dev.config_key),
-                );
+                let page = self.keypad_page(&dev.config_key);
+                let labels = bindings_on_page(&self.config.key_labels(&dev.config_key), page);
+                let icons = bindings_on_page(&self.config.key_icons(&dev.config_key), page);
                 let faces = GridKey::ALL
                     .into_iter()
                     .map(|key| {
                         let button = ButtonId::grid(key);
                         let label = labels.get(&button).map(String::as_str);
-                        (key, key_face(bindings.get(&button), label))
+                        let icon = icons.get(&button).copied();
+                        (key, key_face(bindings.get(&button), label, icon))
                     })
                     .collect();
                 let generation = self.panel_generations.get(&route).copied().unwrap_or(0);
@@ -2462,12 +2462,17 @@ fn is_bound_key(binding: &Binding) -> bool {
 /// keys bound to different shortcuts are indistinguishable on the panel. The
 /// text is [`Action::label`], the same one the settings app shows. A label the
 /// user set wins over both, but never lights an unbound key: a lit key always
-/// does something.
-fn key_face(binding: Option<&Binding>, label: Option<&str>) -> KeyFace {
+/// does something. The user's `icon` replaces the action's glyph wherever it
+/// is drawn, alone or above text.
+fn key_face(
+    binding: Option<&Binding>,
+    label: Option<&str>,
+    icon: Option<ActionRingIcon>,
+) -> KeyFace {
     let Some(action) = binding.and_then(Binding::key_action) else {
         return KeyFace::Blank;
     };
-    let icon = ActionRingIcon::for_action(&action);
+    let icon = icon.unwrap_or_else(|| ActionRingIcon::for_action(&action));
     if let Some(text) = label.and_then(KeyLabel::new) {
         return KeyFace::Label { icon, text };
     }

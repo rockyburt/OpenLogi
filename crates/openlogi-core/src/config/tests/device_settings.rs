@@ -775,3 +775,30 @@ fn a_device_without_key_labels_saves_none() {
     let saved = toml::to_string_pretty(&config).expect("serialize");
     assert!(!saved.contains("key_labels"), "{saved}");
 }
+
+#[test]
+fn keypad_key_icons_load_by_name_and_round_trip() {
+    use crate::binding::{ActionRingIcon, GridKey};
+
+    let body = format!(
+        "schema_version = {SCHEMA_VERSION}\n\
+         [devices.\"serial:keypad\".key_icons]\n\
+         gridTopLeft = \"Microphone\"\n"
+    );
+    let config: Config = toml::from_str(&body).expect("key icons load");
+    let icons = config.key_icons("serial:keypad");
+    assert_eq!(
+        icons.get(&ButtonId::grid(GridKey::TopLeft)),
+        Some(&ActionRingIcon::Microphone)
+    );
+    let saved = toml::to_string_pretty(&config).expect("serialize");
+    let reloaded: Config = toml::from_str(&saved).expect("reload");
+    assert_eq!(reloaded.key_icons("serial:keypad"), icons);
+
+    let unknown = format!(
+        "schema_version = {SCHEMA_VERSION}\n\
+         [devices.\"serial:keypad\".key_icons]\n\
+         gridTopLeft = \"NoSuchGlyph\"\n"
+    );
+    toml::from_str::<Config>(&unknown).expect_err("an unknown glyph name is refused");
+}
