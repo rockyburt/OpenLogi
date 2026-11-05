@@ -2192,6 +2192,7 @@ mod tests {
                 config_key: "mouse",
                 route: route.clone(),
                 layout: None,
+                dialpad: false,
             },
             None,
             0,

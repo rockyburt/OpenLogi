@@ -814,6 +814,7 @@ impl ArmedCapture for ArmedKeys {
             None,
             None,
             self.g_row_taken.map(GKeysRestore::new),
+            None,
         )
     }
 }

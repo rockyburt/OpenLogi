@@ -217,6 +217,7 @@ fn dispatch_input(
         | CapturedInput::ButtonDiverted(_)
         | CapturedInput::HeldWheel { .. }
         | CapturedInput::MainWheel { .. }
+        | CapturedInput::Dial { .. }
         | CapturedInput::HostModeEntered => {}
     }
 }

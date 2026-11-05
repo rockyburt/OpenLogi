@@ -87,6 +87,17 @@ pub enum ButtonId {
     G8,
     /// G-series button G9.
     G9,
+    /// Turning the MX Creative Dialpad's large dial clockwise (HID++
+    /// `0x4610`). Captured whenever the device is a Dialpad: natively the
+    /// dial reports nothing. Kept out of [`ButtonId::ALL`], like the
+    /// G-series buttons, so it seeds and shows on no other device.
+    DialClockwise,
+    /// Turning the Dialpad's large dial counter-clockwise.
+    DialCounterclockwise,
+    /// Rolling the Dialpad's roller up, away from the user.
+    RollerUp,
+    /// Rolling the Dialpad's roller down, toward the user.
+    RollerDown,
     /// A key on a keypad's 3×3 LCD grid, on one of the keypad's binding pages.
     /// These keys report through a vendor report rather than `0x1b04`, so they
     /// have no control ID and no divertable state: bound or not, they emit
@@ -142,6 +153,15 @@ impl ButtonId {
 
     /// G-series buttons, kept out of [`Self::ALL`].
     pub const G_BUTTONS: [ButtonId; 4] = [ButtonId::G6, ButtonId::G7, ButtonId::G8, ButtonId::G9];
+
+    /// The MX Creative Dialpad's rotation directions, kept out of
+    /// [`Self::ALL`] like [`Self::G_BUTTONS`].
+    pub const DIAL_BUTTONS: [ButtonId; 4] = [
+        ButtonId::DialClockwise,
+        ButtonId::DialCounterclockwise,
+        ButtonId::RollerUp,
+        ButtonId::RollerDown,
+    ];
 
     /// The keyboard key bound to `0x1b04` control `cid`.
     #[must_use]
@@ -258,7 +278,7 @@ impl ButtonId {
     /// string form read this one table; `unit_name` is a match without a
     /// wildcard over the unit variants, so a new variant that is missing here
     /// fails to compile rather than failing to parse.
-    const UNIT_NAMES: [(ButtonId, &'static str); 17] = [
+    const UNIT_NAMES: [(ButtonId, &'static str); 21] = [
         (ButtonId::LeftClick, "LeftClick"),
         (ButtonId::RightClick, "RightClick"),
         (ButtonId::MiddleClick, "MiddleClick"),
@@ -276,6 +296,10 @@ impl ButtonId {
         (ButtonId::G7, "G7"),
         (ButtonId::G8, "G8"),
         (ButtonId::G9, "G9"),
+        (ButtonId::DialClockwise, "DialClockwise"),
+        (ButtonId::DialCounterclockwise, "DialCounterclockwise"),
+        (ButtonId::RollerUp, "RollerUp"),
+        (ButtonId::RollerDown, "RollerDown"),
     ];
 
     /// The name a mouse button is persisted under. Keyboard controls have no
@@ -299,6 +323,10 @@ impl ButtonId {
             ButtonId::G7 => Self::UNIT_NAMES[14].1,
             ButtonId::G8 => Self::UNIT_NAMES[15].1,
             ButtonId::G9 => Self::UNIT_NAMES[16].1,
+            ButtonId::DialClockwise => Self::UNIT_NAMES[17].1,
+            ButtonId::DialCounterclockwise => Self::UNIT_NAMES[18].1,
+            ButtonId::RollerUp => Self::UNIT_NAMES[19].1,
+            ButtonId::RollerDown => Self::UNIT_NAMES[20].1,
             // Grid keys, keyboard controls and gaming keys have no fixed name
             // in this table; see [`GridKey::config_name`],
             // [`Cid::config_name`], [`GKeySlot::config_name`] and
@@ -342,6 +370,10 @@ impl ButtonId {
             ButtonId::G7 => "G7",
             ButtonId::G8 => "G8",
             ButtonId::G9 => "G9",
+            ButtonId::DialClockwise => "Dial Clockwise",
+            ButtonId::DialCounterclockwise => "Dial Counterclockwise",
+            ButtonId::RollerUp => "Roller Up",
+            ButtonId::RollerDown => "Roller Down",
             ButtonId::Grid(slot) => return slot.label(),
             ButtonId::Control(cid) => return cid.label(),
             ButtonId::GKey(slot) => return slot.label(),
@@ -370,6 +402,10 @@ impl ButtonId {
             ButtonId::G7 => "actions.g7",
             ButtonId::G8 => "actions.g8",
             ButtonId::G9 => "actions.g9",
+            ButtonId::DialClockwise => "actions.dial_clockwise",
+            ButtonId::DialCounterclockwise => "actions.dial_counterclockwise",
+            ButtonId::RollerUp => "actions.roller_up",
+            ButtonId::RollerDown => "actions.roller_down",
             // The page is context the caller shows beside the key, not part
             // of the key's name.
             ButtonId::Grid(slot) => slot.key.translation_key(),

@@ -113,6 +113,10 @@ struct AgentDevice {
     codename: Option<String>,
     /// The device's latest battery reading, `None` when it has none.
     battery: Option<BatteryInfo>,
+    /// Whether the registry names this device an MX Creative Dialpad, by its
+    /// direct product ID or its Bolt wireless product ID. Its dial and roller
+    /// report only when a capture session switches them on.
+    dialpad: bool,
 }
 
 impl AgentDevice {
@@ -1342,6 +1346,7 @@ impl Orchestrator {
                     config_key: &dev.config_key,
                     route,
                     layout,
+                    dialpad: dev.dialpad,
                 },
                 app,
                 rearm_generation,
