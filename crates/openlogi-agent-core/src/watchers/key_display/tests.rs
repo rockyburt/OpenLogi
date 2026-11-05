@@ -46,7 +46,7 @@ fn first_key(spec: &KeyDisplaySpec) -> Paint<'_> {
     Paint {
         spec,
         key: *key,
-        face: *face,
+        face,
     }
 }
 
@@ -67,7 +67,7 @@ fn a_new_panel_is_painted_in_full() {
         .iter()
         .find(|paint| paint.key == GridKey::Middle)
         .unwrap();
-    assert_eq!(middle.face, KeyFace::Icon(ActionRingIcon::Copy));
+    assert_eq!(*middle.face, KeyFace::Icon(ActionRingIcon::Copy));
 }
 
 #[test]
@@ -166,12 +166,12 @@ fn panels_are_tracked_independently() {
 fn identical_faces_render_once() {
     let mut tiles = Tiles::default();
     let face = KeyFace::Icon(ActionRingIcon::Copy);
-    let first = tiles.get(face, 118).unwrap();
-    let second = tiles.get(face, 118).unwrap();
+    let first = tiles.get(&face, 118).unwrap();
+    let second = tiles.get(&face, 118).unwrap();
     assert!(Arc::ptr_eq(&first, &second));
     assert!(!Arc::ptr_eq(
         &first,
-        &tiles.get(KeyFace::Blank, 118).unwrap()
+        &tiles.get(&KeyFace::Blank, 118).unwrap()
     ));
 }
 
@@ -309,7 +309,7 @@ fn a_key_whose_write_failed_is_repainted_even_when_its_old_face_returns() {
     assert_eq!(painted.next_retry(), Some(now + RETRY_DELAY));
     let retry = painted.plan(&copy, now + RETRY_DELAY);
     assert_eq!(keys(&retry), [GridKey::Middle]);
-    assert_eq!(retry[0].face, KeyFace::Icon(ActionRingIcon::Copy));
+    assert_eq!(*retry[0].face, KeyFace::Icon(ActionRingIcon::Copy));
     painted.record(&retry[0]);
 
     assert!(painted.plan(&copy, now + RETRY_DELAY).is_empty());
