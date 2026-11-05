@@ -42,6 +42,8 @@ mod status_item;
 mod takeover;
 #[cfg(target_os = "macos")]
 mod tray;
+#[cfg(target_os = "linux")]
+mod tray_linux;
 #[cfg(target_os = "windows")]
 mod tray_windows;
 mod virtual_keyboard;
@@ -162,7 +164,12 @@ fn main() {
             resume_windows::register(device_io_signal.clone());
         }
         #[cfg(target_os = "linux")]
-        resume_linux::register(device_io_signal.clone());
+        {
+            // The StatusNotifierItem runs on a thread of its own, as the
+            // Windows icon does; the async core keeps the main thread.
+            tray_linux::spawn(config.app_settings.show_in_menu_bar, shutdown_tx.clone());
+            resume_linux::register(device_io_signal.clone());
+        }
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         drop(device_io_signal);
         runtime.block_on(lifecycle::run(config, shutdown_requests));

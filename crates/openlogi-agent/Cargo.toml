@@ -61,6 +61,9 @@ openlogi-inject = { path = "../openlogi-inject" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
+# The notification-area icon over StatusNotifierItem: plain D-Bus, no GTK or
+# AppIndicator library. `async-io` matches zbus's own default runtime.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.55"
