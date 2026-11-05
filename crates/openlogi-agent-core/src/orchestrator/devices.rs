@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use openlogi_core::config::{Config, DeviceConfig, ScrollResolution};
 use openlogi_core::device::{DeviceInventory, StandaloneDevice};
 use openlogi_core::device_order::{DeviceIdentity, DeviceStableId};
+use openlogi_core::hid::MX_CREATIVE_DIALPAD;
 use openlogi_hid::session::gesture::MainWheelDivert;
 use openlogi_hid::{DIRECT_DEVICE_INDEX, DeviceRoute, Dpi, LeadCookie, ReportRate};
 
@@ -15,6 +16,24 @@ use super::AgentDevice;
 use crate::hardware::WheelModeChange;
 use crate::pointer_speed::SavedSpeed;
 use crate::watchers::host_switch::HostSwitchLink;
+
+/// Whether the registry names the device on `route` an MX Creative Dialpad:
+/// by its product ID when attached directly (Bluetooth), by the wireless
+/// product ID its receiver reports when paired. The kind cannot say it — a
+/// Dialpad shares [`DeviceKind::Numpad`](openlogi_core::device::DeviceKind)
+/// with the keypad.
+fn is_dialpad(route: Option<&DeviceRoute>, wpid: Option<u16>) -> bool {
+    let matches = |vendor_id, product_id| {
+        vendor_id == MX_CREATIVE_DIALPAD.vendor_id && product_id == MX_CREATIVE_DIALPAD.product_id
+    };
+    match route {
+        Some(DeviceRoute::Direct {
+            vendor_id,
+            product_id,
+        }) => matches(*vendor_id, *product_id),
+        _ => wpid.is_some_and(|wpid| matches(MX_CREATIVE_DIALPAD.vendor_id, wpid)),
+    }
+}
 
 /// Resolve the two independently-gated HiResWheel settings for one device
 /// into the change that applies them. A setting the device cannot take, or
@@ -206,6 +225,7 @@ pub(super) fn build_devices(
                 continue;
             };
             let route = DeviceRoute::for_slot(inv, paired.slot);
+            let dialpad = is_dialpad(route.as_ref(), paired.wpid);
             let stable_id = DeviceStableId::from_parts(
                 route.as_ref(),
                 paired.slot,
@@ -237,6 +257,7 @@ pub(super) fn build_devices(
                 settings_revision: paired.settings_revision,
                 codename: paired.codename.clone(),
                 battery: paired.battery.clone(),
+                dialpad,
             });
         }
     }
@@ -270,6 +291,8 @@ pub(super) fn build_devices(
             // Its name is its display name, and it reports no battery.
             codename: None,
             battery: None,
+            // A raw-HID device speaks no HID++, so it has no dials to capture.
+            dialpad: false,
         });
     }
     // Order by the same canonical key the GUI carousel uses, so the
@@ -920,4 +943,27 @@ pub(super) fn pick_current(devices: &[AgentDevice], saved: Option<&str>) -> usiz
 
 pub(super) fn is_hidpp_device(device: &AgentDevice) -> bool {
     !matches!(device.route, Some(DeviceRoute::RawHid { .. }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dialpad_is_known_by_its_direct_product_id_or_its_wpid() {
+        let direct = |product_id| DeviceRoute::Direct {
+            vendor_id: MX_CREATIVE_DIALPAD.vendor_id,
+            product_id,
+        };
+        let bolt = DeviceRoute::Bolt {
+            receiver_uid: "cafe".into(),
+            slot: 1,
+        };
+        let dialpad = MX_CREATIVE_DIALPAD.product_id;
+        assert!(is_dialpad(Some(&direct(dialpad)), None));
+        assert!(!is_dialpad(Some(&direct(0xb034)), None), "another device");
+        assert!(is_dialpad(Some(&bolt), Some(dialpad)));
+        assert!(!is_dialpad(Some(&bolt), Some(0xc354)), "the keypad");
+        assert!(!is_dialpad(Some(&bolt), None));
+    }
 }

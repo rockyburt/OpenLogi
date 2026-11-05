@@ -83,6 +83,14 @@ pub fn default_binding(button: ButtonId) -> Action {
             reason = "the layout owns a G button's default; unrelated to the keyboard arm"
         )]
         ButtonId::G6 | ButtonId::G7 | ButtonId::G8 | ButtonId::G9 => Action::None,
+        // The MX Creative Dialpad's dial and roller do nothing natively, so
+        // their defaults are what a first turn should do: the dial sets the
+        // volume and the roller scrolls. Both are rendered through the thumb
+        // wheel's accumulator (volume repeats with distance, scroll is smooth).
+        ButtonId::DialClockwise => Action::VolumeUp,
+        ButtonId::DialCounterclockwise => Action::VolumeDown,
+        ButtonId::RollerUp => Action::ScrollUp,
+        ButtonId::RollerDown => Action::ScrollDown,
         // Keyboard keys stay on their native firmware function until the user
         // explicitly binds them; an unbound key is never diverted, so a
         // `None` default keeps the projection total without capturing anything.

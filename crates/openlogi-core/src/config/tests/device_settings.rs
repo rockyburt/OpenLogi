@@ -301,6 +301,33 @@ fn config_without_scroll_resolution_loads_as_unmanaged() {
     assert!(cfg.invert_scroll("mouse"));
 }
 
+/// The Dialpad example in `docs/CONFIGURATION.md` parses as written.
+#[test]
+fn dialpad_dial_and_roller_bindings_parse_by_name() {
+    let parsed: Config = toml::from_str(&format!(
+        r#"
+        schema_version = {SCHEMA_VERSION}
+        [devices."serial:dialpad".bindings]
+        DialClockwise = "NextTrack"
+        DialCounterclockwise = "PrevTrack"
+        RollerUp = "VolumeUp"
+        RollerDown = "VolumeDown"
+        "control:0x0053" = "PlayPause"
+        "#,
+    ))
+    .expect("documented Dialpad bindings");
+    let bindings = parsed.stored_bindings("serial:dialpad");
+    for (button, action) in [
+        (ButtonId::DialClockwise, Action::NextTrack),
+        (ButtonId::DialCounterclockwise, Action::PrevTrack),
+        (ButtonId::RollerUp, Action::VolumeUp),
+        (ButtonId::RollerDown, Action::VolumeDown),
+    ] {
+        assert_eq!(bindings.get(&button), Some(&Binding::Single(action)));
+    }
+    assert_eq!(bindings.len(), 5);
+}
+
 #[test]
 fn bindings_roundtrip_per_device() {
     let mut cfg = Config::default();

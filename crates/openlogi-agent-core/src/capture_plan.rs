@@ -305,6 +305,9 @@ pub struct PlanDevice<'a> {
     /// The device's G-series layout, which names the stock functions of its
     /// G buttons. `None` for a device without one.
     pub layout: Option<&'a GamingLayout>,
+    /// Whether the device is an MX Creative Dialpad, whose dial and roller
+    /// the session switches to reporting (see [`CaptureSpec::capture_dials`]).
+    pub dialpad: bool,
 }
 
 /// Build one device's plan from the config (per-app effective for `app`).
@@ -316,6 +319,7 @@ pub fn plan_for_device(
         config_key,
         route,
         layout,
+        dialpad,
     }: PlanDevice<'_>,
     app: Option<&str>,
     rearm_generation: u64,
@@ -416,6 +420,9 @@ pub fn plan_for_device(
             spec: CaptureSpec {
                 capture_thumbwheel: thumbwheel_sensitivity != ThumbwheelSensitivity::DEFAULT
                     || thumbwheel_bindings_nondefault,
+                // Natively the dials report nothing, so even their default
+                // bindings need the capture: a Dialpad always arms them.
+                capture_dials: dialpad,
                 divert_gesture_sources: GESTURE_SOURCE_BUTTONS
                     .into_iter()
                     .filter(|(_, button)| gesture_bindings.contains_key(button))
@@ -520,11 +527,37 @@ mod tests {
                 config_key,
                 route,
                 layout: None,
+                dialpad: false,
             },
             app,
             rearm_generation,
             os_mouse_hook_available,
         )
+    }
+
+    /// A Dialpad's dials report nothing natively, so its plan captures them
+    /// even with every binding at its default; no other device asks.
+    #[test]
+    fn only_a_dialpad_captures_its_dials_and_does_so_by_default() {
+        let config = Config::default();
+        let plan = |dialpad| {
+            super::plan_for_device(
+                &config,
+                super::PlanDevice {
+                    physical_key: PhysicalDeviceKey::parse("receiver:cafe:slot:2")
+                        .expect("fixture should be a physical key"),
+                    config_key: "dialpad",
+                    route: route(),
+                    layout: None,
+                    dialpad,
+                },
+                None,
+                0,
+                true,
+            )
+        };
+        assert!(plan(true).target.spec.capture_dials);
+        assert!(!plan(false).target.spec.capture_dials);
     }
 
     /// The plan the orchestrator builds for a G502 LIGHTSPEED: its bindings
@@ -539,6 +572,7 @@ mod tests {
                 config_key: "g502",
                 route: route(),
                 layout: Some(layout),
+                dialpad: false,
             },
             None,
             0,

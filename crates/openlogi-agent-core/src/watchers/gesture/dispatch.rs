@@ -10,6 +10,7 @@ use openlogi_core::binding::{Action, Binding, ButtonId, HeldWheel, default_bindi
 use openlogi_core::config::ThumbwheelSensitivity;
 use openlogi_core::scroll::ScrollDelta;
 use openlogi_hid::CapturedInput;
+use openlogi_hid::dial::DialControl;
 use openlogi_hid::thumbwheel::WheelResolution;
 use tracing::debug;
 
@@ -84,15 +85,39 @@ impl HeldPresses {
 /// rather than device prevents a replacement epoch from inheriting progress or
 /// having its state removed by a stale completion from the previous epoch.
 #[derive(Default)]
-struct SessionWheels(HashMap<HidppSessionId, WheelAccumulators>);
+struct SessionWheels {
+    thumb: HashMap<HidppSessionId, WheelAccumulators>,
+    /// The Dialpad's dial and roller, each its own pair of directions.
+    dials: HashMap<(HidppSessionId, DialControl), WheelAccumulators>,
+}
 
 impl SessionWheels {
     fn for_session(&mut self, session: &HidppSessionId) -> &mut WheelAccumulators {
-        self.0.entry(session.clone()).or_default()
+        self.thumb.entry(session.clone()).or_default()
+    }
+
+    fn for_dial(
+        &mut self,
+        session: &HidppSessionId,
+        control: DialControl,
+    ) -> &mut WheelAccumulators {
+        self.dials.entry((session.clone(), control)).or_default()
     }
 
     fn cancel_session(&mut self, session: &HidppSessionId) {
-        self.0.remove(session);
+        self.thumb.remove(session);
+        self.dials.retain(|(candidate, _), _| candidate != session);
+    }
+}
+
+/// The binding key of one Dialpad rotation: clockwise or counter-clockwise
+/// on the dial, up or down on the roller.
+fn dial_button(control: DialControl, positive: bool) -> ButtonId {
+    match (control, positive) {
+        (DialControl::Dial, true) => ButtonId::DialClockwise,
+        (DialControl::Dial, false) => ButtonId::DialCounterclockwise,
+        (DialControl::Roller, true) => ButtonId::RollerUp,
+        (DialControl::Roller, false) => ButtonId::RollerDown,
     }
 }
 
@@ -283,6 +308,9 @@ impl InputDispatcher {
                 ),
                 plan.momentum.resolve(),
             ),
+            CapturedInput::Dial { control, delta } => {
+                self.dispatch_dial(session, plan, control, delta);
+            }
             CapturedInput::Interrupted => self.cancel_session(session),
             CapturedInput::HostModeEntered => self.outputs.actions.host_mode_entered(key),
             CapturedInput::ButtonDiverted(_) => {
@@ -346,6 +374,64 @@ impl InputDispatcher {
         }
     }
 
+    /// Rotation of the MX Creative Dialpad's dial or roller, through the
+    /// thumb wheel's accumulator: a scroll binding scrolls smoothly, one
+    /// notch per click, and any other action fires once per click (volume
+    /// repeating with distance).
+    fn dispatch_dial(
+        &mut self,
+        session: &HidppSessionId,
+        plan: &DispatchPlan,
+        control: DialControl,
+        delta: i8,
+    ) {
+        let Some(rotation) = WheelRotation::from_increments(i16::from(delta)) else {
+            return;
+        };
+        let button = dial_button(control, rotation.is_positive());
+        let action = plan
+            .bindings
+            .get(&button)
+            .map_or_else(|| default_binding(button), Binding::click_action);
+        let output = self.wheels.for_dial(session, control).advance(
+            rotation,
+            &action,
+            ScrollScale::per_click(control.resolution()),
+            Instant::now(),
+        );
+        self.emit_wheel_output(session, plan, button, &action, output, "dial");
+    }
+
+    /// Post what one advance of a wheel accumulator produced for `button`.
+    fn emit_wheel_output(
+        &self,
+        session: &HidppSessionId,
+        plan: &DispatchPlan,
+        button: ButtonId,
+        action: &Action,
+        output: WheelOutput,
+        source: &'static str,
+    ) {
+        let key = session.device_key();
+        match output {
+            WheelOutput::Idle => {}
+            WheelOutput::Scroll(delta) => {
+                debug!(key, ?button, action = %action.label(), ?delta, source, "wheel → scroll");
+                self.outputs.post_scroll(session, delta);
+            }
+            WheelOutput::FireAction(repeats) => {
+                debug!(key, ?button, action = %action.label(), repeats, source, "wheel → action");
+                for _ in 0..repeats {
+                    self.outputs.actions.dispatch_pointer_action(
+                        action,
+                        Some(key),
+                        plan.pointer.as_ref().map(|pointer| pointer.press(button)),
+                    );
+                }
+            }
+        }
+    }
+
     fn dispatch_wheel(
         &mut self,
         session: &HidppSessionId,
@@ -356,33 +442,16 @@ impl InputDispatcher {
         let Some(rotation) = WheelRotation::from_increments(increments) else {
             return;
         };
-        let key = session.device_key();
         let button = rotation.button();
         let configuration = WheelConfiguration::for_plan(plan);
         let action = configuration.action(rotation);
-        let wheels = self.wheels.for_session(session);
-        match wheels.advance(
+        let output = self.wheels.for_session(session).advance(
             rotation,
             action,
             ScrollScale::new(resolution, configuration.sensitivity),
             Instant::now(),
-        ) {
-            WheelOutput::Idle => {}
-            WheelOutput::Scroll(delta) => {
-                debug!(key, ?button, action = %action.label(), ?delta, "thumb wheel → scroll");
-                self.outputs.post_scroll(session, delta);
-            }
-            WheelOutput::FireAction(repeats) => {
-                debug!(key, ?button, action = %action.label(), repeats, "thumb wheel → action");
-                for _ in 0..repeats {
-                    self.outputs.actions.dispatch_pointer_action(
-                        action,
-                        Some(key),
-                        plan.pointer.as_ref().map(|pointer| pointer.press(button)),
-                    );
-                }
-            }
-        }
+        );
+        self.emit_wheel_output(session, plan, button, action, output, "thumb wheel");
     }
 }
 

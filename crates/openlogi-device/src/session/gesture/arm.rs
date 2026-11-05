@@ -15,11 +15,12 @@ use tracing::{debug, info, warn};
 use super::CaptureSpec;
 use super::main_wheel::{self, ArmedMainWheel, MainWheelDivert};
 use super::spy::{self, ArmedOnboard};
+use crate::dial::Dials;
 use crate::reprog_controls::{self, ReprogControlsV4};
 use crate::session::capture::{ReportingChangeStream, open_device, subscribe_reporting_changes};
 use crate::session::capture_restore::{
-    ArmedReporting, CaptureError, CaptureSessionFailure, HiResWheelRestore, PendingCaptureRestore,
-    PointerDivert, ReprogRestore, ThumbwheelRestore,
+    ArmedReporting, CaptureError, CaptureSessionFailure, DialRestore, HiResWheelRestore,
+    PendingCaptureRestore, PointerDivert, ReprogRestore, ThumbwheelRestore,
 };
 use crate::session::restore::rollback_start;
 use crate::thumbwheel::{
@@ -67,6 +68,9 @@ pub(super) struct ArmedControls {
     /// `0x2121` main wheel, present when its movement reports are diverted.
     pub(super) main_wheel: Option<ArmedMainWheel>,
     pub(super) onboard: Option<ArmedOnboard>,
+    /// `0x4610` accessor, present when the Dialpad's dial and roller were
+    /// switched to reporting.
+    pub(super) dials: Option<Dials>,
 }
 
 pub(super) struct ArmedThumbwheel {
@@ -129,6 +133,7 @@ impl ArmedControls {
             thumb,
             main_wheel,
             onboard,
+            dials,
             ..
         } = self;
         let reprog =
@@ -142,6 +147,9 @@ impl ArmedControls {
                 .map(|wheel| HiResWheelRestore::new(wheel.feature_index, wheel.restore_resolution)),
             onboard.as_ref().and_then(ArmedOnboard::restore),
             None,
+            dials
+                .as_ref()
+                .map(|dials| DialRestore::new(dials.feature_index())),
         )
     }
 
@@ -170,6 +178,11 @@ impl ArmedControls {
             && let Err(error) = wheel.divert().await
         {
             warn!(?error, "main-wheel re-divert after wake failed");
+        }
+        if let Some(dials) = self.dials.as_ref()
+            && let Err(error) = dials.enable().await
+        {
+            warn!(?error, "dial reporting after wake failed");
         }
         // A half-applied host mode mutes buttons with no spy to replace them.
         match self.onboard.as_ref() {
@@ -209,6 +222,7 @@ pub(super) async fn arm_controls(
         && armed.thumb.is_none()
         && armed.main_wheel.is_none()
         && armed.onboard.is_none()
+        && armed.dials.is_none()
     {
         debug!(slot, "no capturable controls — idle session");
     }
@@ -312,6 +326,12 @@ pub(super) async fn arm_controls_into(
         arm_thumbwheel(Thumbwheel::new(Arc::clone(chan), slot, info.index), armed).await?;
     }
 
+    if spec.capture_dials
+        && let Some(info) = device.root().get_feature(crate::dial::FEATURE_ID).await?
+    {
+        arm_dials(Dials::new(Arc::clone(chan), slot, info.index), armed).await?;
+    }
+
     if let Some(requested) = spec.divert_main_wheel
         && let Some(info) = device.root().get_feature(HiResWheelFeature::ID).await?
     {
@@ -368,6 +388,28 @@ async fn arm_thumbwheel(tw: Thumbwheel, armed: &mut ArmedControls) -> Result<(),
     });
     thumb.wheel.divert(thumb.direction()).await?;
     Ok(())
+}
+
+/// Switch the Dialpad's dial and roller to reporting.
+///
+/// Like the main wheel, a refusal (a feature error) switches them back off
+/// and leaves the rest of the session armed, so the Dialpad's keys keep
+/// their bindings; a transport failure fails arming, which rolls the dials
+/// back with everything else.
+async fn arm_dials(dials: Dials, armed: &mut ArmedControls) -> Result<(), CaptureError> {
+    // Ownership before the write, as for the thumb wheel: a transport error
+    // cannot prove the firmware ignored the enable.
+    let dials = armed.dials.insert(dials);
+    match dials.enable().await {
+        Ok(()) => Ok(()),
+        Err(error @ Hidpp20Error::Channel(_)) => Err(error.into()),
+        Err(error) => {
+            warn!(?error, "dials refused reporting — left off");
+            dials.disable().await?;
+            armed.dials = None;
+            Ok(())
+        }
+    }
 }
 
 /// Divert the main wheel for smooth scrolling.

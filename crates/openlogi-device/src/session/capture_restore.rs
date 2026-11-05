@@ -18,6 +18,7 @@ use super::gesture::main_wheel;
 use super::restore::{PendingRestore, RestoreOutcome, RestorePlan, SessionFailure};
 use crate::backend::BackendError;
 use crate::channel::registry::PublicationState;
+use crate::dial::Dials;
 use crate::reprog_controls::{self, ReprogControlsV4};
 use crate::thumbwheel::{self, Thumbwheel, ThumbwheelStatus};
 use crate::{ChannelRegistry, DeviceRoute, IoSuspended, SharedChannel};
@@ -286,6 +287,20 @@ impl HiResWheelRestore {
     }
 }
 
+/// The Dialpad dials a capture session switched to reporting over `0x4610`.
+/// Teardown switches reporting off again: natively the controls report
+/// nothing, so there is no prior state to read or return.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DialRestore {
+    feature_index: u8,
+}
+
+impl DialRestore {
+    pub(crate) fn new(feature_index: u8) -> Self {
+        Self { feature_index }
+    }
+}
+
 /// The G-key row a keyboard session took from its onboard actions over
 /// `0x8010`. Teardown hands the whole row back: the feature has no per-key
 /// state to restore.
@@ -324,6 +339,7 @@ pub struct CaptureRestorePlan {
     main_wheel: Option<HiResWheelRestore>,
     spy: Option<SpyRestore>,
     g_keys: Option<GKeysRestore>,
+    dials: Option<DialRestore>,
 }
 
 impl fmt::Debug for CaptureRestorePlan {
@@ -340,6 +356,7 @@ impl fmt::Debug for CaptureRestorePlan {
             .field("has_main_wheel", &self.main_wheel.is_some())
             .field("host_mode", &self.spy.is_some())
             .field("g_key_row", &self.g_keys.is_some())
+            .field("dials", &self.dials.is_some())
             .finish()
     }
 }
@@ -368,6 +385,10 @@ impl RestorePlan for CaptureRestorePlan {
         if let Some(thumb) = self.thumb {
             let thumbwheel = Thumbwheel::new(channel.clone(), device_index, thumb.feature_index);
             restored &= restore_result(thumbwheel.restore(thumb.status).await, "thumb wheel");
+        }
+        if let Some(dials) = self.dials {
+            let feature = Dials::new(channel.clone(), device_index, dials.feature_index);
+            restored &= restore_result(feature.disable().await, "dials");
         }
         if let Some(spy) = &self.spy {
             restored &= spy.restore_on(&channel, device_index).await;
@@ -403,12 +424,13 @@ impl PendingCaptureRestore {
                 main_wheel: None,
                 spy: None,
                 g_keys: None,
+                dials: None,
             },
         )
     }
 
-    /// The restore owed for `reprog`, the two wheels, host mode and the
-    /// G-key row, or `None` when the session diverted nothing.
+    /// The restore owed for `reprog`, the two wheels, host mode, the G-key
+    /// row and the Dialpad dials, or `None` when the session diverted nothing.
     pub(crate) fn new(
         retired: &SharedChannel,
         reprog: Option<ReprogRestore>,
@@ -416,12 +438,14 @@ impl PendingCaptureRestore {
         main_wheel: Option<HiResWheelRestore>,
         spy: Option<SpyRestore>,
         g_keys: Option<GKeysRestore>,
+        dials: Option<DialRestore>,
     ) -> Option<Self> {
         if reprog.is_none()
             && thumb.is_none()
             && main_wheel.is_none()
             && spy.is_none()
             && g_keys.is_none()
+            && dials.is_none()
         {
             return None;
         }
@@ -433,6 +457,7 @@ impl PendingCaptureRestore {
                 main_wheel,
                 spy,
                 g_keys,
+                dials,
             },
         ))
     }

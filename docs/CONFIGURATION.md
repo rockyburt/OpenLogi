@@ -189,6 +189,28 @@ Common device fields are:
   To undo an older GUI's Native selection that saved `None`, select Native again;
   existing `None` entries are not migrated because they may be intentional.
   Naming one control under both spellings in the same table is an error, not a merge
+
+  The MX Creative Dialpad's large dial and roller are bound as four
+  directions: `DialClockwise`, `DialCounterclockwise`, `RollerUp` and
+  `RollerDown`. They report nothing until the agent switches them on (HID++
+  `0x4610`), so the agent captures them whenever a Dialpad is connected and
+  enabled, defaults included: the dial sets the volume and the roller scrolls
+  vertically. A scroll action scrolls smoothly, one notch per click (the dial
+  reports about fifteen steps a click, the roller about eight); any other
+  action runs once per click, and volume repeats with distance. The four keys
+  are `0x1b04` controls: `control:0x0053` and `control:0x0056` beside the
+  roller, `control:0x0059` and `control:0x005a` beside the dial. On teardown
+  the agent switches the dials off again; that the off command (`[dial, 0x00]`)
+  is the exact inverse is assumed, not confirmed.
+
+  ```toml
+  [devices."serial:<dialpad>".bindings]
+  DialClockwise = "NextTrack"
+  DialCounterclockwise = "PrevTrack"
+  RollerUp = "VolumeUp"
+  RollerDown = "VolumeDown"
+  "control:0x0053" = "PlayPause"
+  ```
 - `per_app_bindings`: sparse action overlays keyed by macOS bundle id (or the
   exact executable path for applications without a bundle id), Linux application
   id, exact lower-cased Windows executable path, or `exe:<filename>.exe`. macOS

@@ -72,6 +72,12 @@ impl WheelRotation {
         })
     }
 
+    /// Whether this rotation is positive: up on the thumb wheel, clockwise
+    /// on the Dialpad's dial, up on its roller.
+    pub(super) const fn is_positive(self) -> bool {
+        matches!(self.direction, PhysicalDirection::Up)
+    }
+
     /// Binding key for this physical direction.
     pub(super) const fn button(self) -> ButtonId {
         match self.direction {
@@ -110,7 +116,7 @@ impl WheelDirection {
         if let Some(binding) = ScrollBinding::from_action(action) {
             return self.advance_scroll(binding, magnitude, scale);
         }
-        self.advance_action(action, magnitude, scale.sensitivity, now)
+        self.advance_action(action, magnitude, scale, now)
     }
 
     /// Emit continuous scroll immediately as a typed fractional delta. The
@@ -140,12 +146,13 @@ impl WheelDirection {
         &mut self,
         action: &Action,
         magnitude: i32,
-        sensitivity: ThumbwheelSensitivity,
+        scale: ScrollScale,
         now: Instant,
     ) -> WheelOutput {
         let next_binding = DiscreteBinding {
             action: action.clone(),
-            sensitivity,
+            sensitivity: scale.sensitivity,
+            threshold: scale.action_threshold,
         };
         let (mut increments, last_event, last_fired) = match std::mem::take(&mut self.state) {
             WheelState::Action {
@@ -161,7 +168,7 @@ impl WheelDirection {
             increments = 0;
         }
 
-        let threshold = next_binding.sensitivity.action_threshold();
+        let threshold = next_binding.threshold;
         let (output, last_fired) = if is_repeatable(action) {
             // Volume actions track accumulated distance without the discrete-action cooldown.
             increments += magnitude;
@@ -233,6 +240,8 @@ struct ScrollContext {
 struct DiscreteBinding {
     action: Action,
     sensitivity: ThumbwheelSensitivity,
+    /// Increments that fire the action once.
+    threshold: i32,
 }
 
 /// Axis and sign encoded by a continuous-scroll action.
@@ -285,17 +294,30 @@ pub(super) struct ScrollScale {
     resolution: WheelResolution,
     /// User multiplier relative to the device's native amount.
     sensitivity: ThumbwheelSensitivity,
+    /// Increments that fire a discrete action once.
+    action_threshold: i32,
 }
 
 impl ScrollScale {
     /// Pair one captured event's device resolution with the active setting.
-    pub(super) const fn new(
-        resolution: WheelResolution,
-        sensitivity: ThumbwheelSensitivity,
-    ) -> Self {
+    pub(super) fn new(resolution: WheelResolution, sensitivity: ThumbwheelSensitivity) -> Self {
         Self {
             resolution,
             sensitivity,
+            action_threshold: sensitivity.action_threshold(),
+        }
+    }
+
+    /// The scale of a control measured in clicks rather than tuned by a
+    /// sensitivity: `resolution` carries one native tick per click, and one
+    /// click fires a discrete action once. The MX Creative Dialpad's dial
+    /// and roller use it.
+    pub(super) fn per_click(resolution: WheelResolution) -> Self {
+        let per_click = i32::from(resolution.diverted_res / resolution.native_res.max(1));
+        Self {
+            resolution,
+            sensitivity: ThumbwheelSensitivity::DEFAULT,
+            action_threshold: per_click.max(1),
         }
     }
 

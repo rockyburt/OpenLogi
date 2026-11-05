@@ -46,7 +46,7 @@ fn replacement_session_does_not_inherit_progress_or_cooldown() {
 
     wheels.cancel_session(&old);
     assert!(
-        wheels.0.contains_key(&replacement),
+        wheels.thumb.contains_key(&replacement),
         "canceling a stale epoch must not erase its replacement's state"
     );
 }
@@ -162,6 +162,7 @@ fn shifted_presses_use_the_gshift_layer_and_fall_back_to_normal() {
                 slot: 1,
             },
             layout: Some(&openlogi_core::binding::G502_LIGHTSPEED),
+            dialpad: false,
         },
         None,
         0,
@@ -186,4 +187,58 @@ fn shift_layer_stays_on_until_every_shift_button_is_released() {
     assert!(!held.release(&session, ButtonId::G7));
     assert!(held.release(&session, ButtonId::Forward));
     assert!(!held.active(&session));
+}
+
+#[test]
+fn dial_rotations_bind_to_their_own_directions() {
+    assert_eq!(
+        dial_button(DialControl::Dial, true),
+        ButtonId::DialClockwise
+    );
+    assert_eq!(
+        dial_button(DialControl::Dial, false),
+        ButtonId::DialCounterclockwise
+    );
+    assert_eq!(dial_button(DialControl::Roller, true), ButtonId::RollerUp);
+    assert_eq!(
+        dial_button(DialControl::Roller, false),
+        ButtonId::RollerDown
+    );
+}
+
+/// The large dial reports about fifteen steps a click: volume moves once per
+/// click however the steps arrive, and a quarter click moves nothing.
+#[test]
+fn the_dial_fires_volume_once_per_click() {
+    let scale = ScrollScale::per_click(DialControl::Dial.resolution());
+    let mut wheels = WheelAccumulators::default();
+    let now = Instant::now();
+    let step = |wheels: &mut WheelAccumulators, steps: i16| {
+        wheels.advance(
+            WheelRotation::from_increments(steps).expect("rotation"),
+            &Action::VolumeUp,
+            scale,
+            now,
+        )
+    };
+    assert_eq!(step(&mut wheels, 4), WheelOutput::Idle);
+    assert_eq!(step(&mut wheels, 11), WheelOutput::FireAction(1));
+    assert_eq!(step(&mut wheels, 30), WheelOutput::FireAction(2));
+}
+
+/// The roller scrolls one notch per click (about eight steps), smoothly.
+#[test]
+fn the_roller_scrolls_a_notch_per_click() {
+    let scale = ScrollScale::per_click(DialControl::Roller.resolution());
+    let mut wheels = WheelAccumulators::default();
+    let output = wheels.advance(
+        WheelRotation::from_increments(-4).expect("rotation"),
+        &Action::ScrollDown,
+        scale,
+        Instant::now(),
+    );
+    let WheelOutput::Scroll(delta) = output else {
+        panic!("expected a scroll, got {output:?}");
+    };
+    assert!((vertical(delta) + 0.5).abs() < 1e-9, "half a notch down");
 }

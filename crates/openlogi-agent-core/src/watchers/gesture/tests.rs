@@ -21,15 +21,21 @@ fn session_id(epoch: u64) -> HidppSessionId {
     HidppSessionId::with_epoch("mouse-a", epoch)
 }
 
+/// The fixture mouse a plan is built for.
+fn mouse_a() -> crate::capture_plan::PlanDevice<'static> {
+    crate::capture_plan::PlanDevice {
+        physical_key: physical_key(),
+        config_key: "mouse-a",
+        route: route(),
+        layout: None,
+        dialpad: false,
+    }
+}
+
 fn plan() -> DeviceCapturePlan {
     crate::capture_plan::plan_for_device(
         &openlogi_core::config::Config::default(),
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
+        mouse_a(),
         None,
         0,
         true,
@@ -568,6 +574,7 @@ fn capture_target_changes_schedule_the_old_session_for_retirement() {
             config_key: "mouse-a",
             route: session.target().route.clone(),
             layout: None,
+            dialpad: false,
         },
         None,
         0,
@@ -675,18 +682,7 @@ fn active_session_adopts_action_only_plan_changes_without_rearming() {
         ButtonId::DpiToggle,
         Binding::Single(Action::Copy),
     );
-    let first = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let first = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     let mut session = live_session_from_plan(7, first.clone());
 
     config.set_binding(
@@ -694,18 +690,7 @@ fn active_session_adopts_action_only_plan_changes_without_rearming() {
         ButtonId::DpiToggle,
         Binding::Single(Action::Paste),
     );
-    let rebound = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let rebound = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     assert_eq!(first.target, rebound.target);
     assert_eq!(
         session.reconcile_with(
@@ -724,18 +709,7 @@ fn active_session_adopts_action_only_plan_changes_without_rearming() {
 fn active_session_adopts_gesture_and_per_app_dispatch_changes() {
     let mut config = openlogi_core::config::Config::default();
     config.set_gesture_mode("mouse-a", ButtonId::GestureButton, true);
-    let first = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let first = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     let mut session = live_session_from_plan(7, first.clone());
 
     config.set_gesture_direction(
@@ -744,18 +718,7 @@ fn active_session_adopts_gesture_and_per_app_dispatch_changes() {
         GestureDirection::Right,
         Action::MissionControl,
     );
-    let gestured = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let gestured = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     assert_eq!(first.target, gestured.target);
     assert_eq!(
         session.reconcile_with(
@@ -778,18 +741,7 @@ fn active_session_adopts_gesture_and_per_app_dispatch_changes() {
         ButtonId::DpiToggle,
         Binding::Single(Action::Copy),
     );
-    let base = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let base = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     let mut session = live_session_from_plan(8, base.clone());
     config.set_per_app_binding(
         "mouse-a",
@@ -799,12 +751,7 @@ fn active_session_adopts_gesture_and_per_app_dispatch_changes() {
     );
     let per_app = crate::capture_plan::plan_for_device(
         &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
+        mouse_a(),
         Some("com.example.Editor"),
         0,
         true,
@@ -831,18 +778,7 @@ fn wheel_configuration_changes_refresh_without_rearming_hardware() {
         ButtonId::ThumbwheelScrollUp,
         Binding::Single(Action::NextTab),
     );
-    let first = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let first = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     let mut session = live_session_from_plan(7, first.clone());
 
     config.set_binding(
@@ -850,18 +786,7 @@ fn wheel_configuration_changes_refresh_without_rearming_hardware() {
         ButtonId::ThumbwheelScrollUp,
         Binding::Single(Action::VolumeUp),
     );
-    let rebound = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let rebound = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     assert_eq!(
         first.target, rebound.target,
         "both custom bindings require the same HID++ diversion"
@@ -877,18 +802,7 @@ fn wheel_configuration_changes_refresh_without_rearming_hardware() {
     assert!(session.is_active());
 
     config.set_device_thumbwheel_sensitivity("mouse-a", Some(ThumbwheelSensitivity::MIN));
-    let rescaled = crate::capture_plan::plan_for_device(
-        &config,
-        crate::capture_plan::PlanDevice {
-            physical_key: physical_key(),
-            config_key: "mouse-a",
-            route: route(),
-            layout: None,
-        },
-        None,
-        0,
-        true,
-    );
+    let rescaled = crate::capture_plan::plan_for_device(&config, mouse_a(), None, 0, true);
     assert_eq!(rebound.target, rescaled.target);
     assert_eq!(
         session.reconcile_with(

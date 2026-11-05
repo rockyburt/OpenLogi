@@ -55,6 +55,7 @@ pub use super::capture_restore::{
     CaptureChannelSlot, CaptureError, CaptureSessionFailure, CaptureSessionOutcome,
     CaptureSessionStop, PendingCaptureRestore,
 };
+use crate::dial::{self, DialControl, Dials};
 use crate::reprog_controls::{self, ReprogControlsV4};
 use crate::thumbwheel::{self, RotationStatus, WheelResolution};
 
@@ -114,6 +115,15 @@ pub enum CapturedInput {
         /// Units of `delta` per wheel notch: 1 for a low-resolution report,
         /// the wheel's `0x2121` multiplier for a high-resolution one.
         per_notch: NonZeroU8,
+    },
+    /// Rotation of the MX Creative Dialpad's large dial or roller, which the
+    /// session switched to reporting over `0x4610`.
+    Dial {
+        /// The control that turned.
+        control: DialControl,
+        /// Steps since its previous report; positive is clockwise on the
+        /// dial and upward (away from the user) on the roller.
+        delta: i8,
     },
     /// The device power-cycled. Presses still held are over, but nobody let
     /// go: they end without the action a release would run. State the device
@@ -182,6 +192,10 @@ pub struct CaptureSpec {
     /// Divert the thumb wheel over `0x2150` (rotation rebind / sensitivity /
     /// click bound).
     pub capture_thumbwheel: bool,
+    /// Switch on the MX Creative Dialpad's dial and roller reporting over
+    /// `0x4610`. Natively they report nothing, so a Dialpad captures them
+    /// whatever its bindings. Inert on a device without the feature.
+    pub capture_dials: bool,
     /// Gesture-source CIDs ([`GESTURE_SOURCE_BUTTONS`] members) to divert
     /// with raw-XY — one per source in gesture mode; empty when no HID++
     /// control gestures. A control without raw XY is diverted plainly and
@@ -288,6 +302,7 @@ impl ArmedCapture for GestureCapture {
             wheel_buttons = armed.wheel_button_cids.len(),
             thumbwheel = armed.thumb.is_some(),
             main_wheel = armed.main_wheel.is_some(),
+            dials = armed.dials.is_some(),
             spy_buttons = armed
                 .onboard
                 .as_ref()
@@ -331,6 +346,7 @@ impl ArmedCapture for GestureCapture {
             .main_wheel
             .as_ref()
             .map(|wheel| (wheel.feature_index, wheel.per_notch));
+        let dial_index = armed.dials.as_ref().map(Dials::feature_index);
         let spy = armed.onboard.as_ref().and_then(ArmedOnboard::spy);
         let spy_edges = Arc::clone(&self.spy_edges);
         spy_edges
@@ -381,6 +397,17 @@ impl ArmedCapture for GestureCapture {
                 );
                 if let Some(input) = thumbwheel_input(event, previous, thumb_resolution) {
                     let _ = sink.send(input);
+                }
+                return;
+            }
+            if let Some(idx) = dial_index
+                && let Some(event) = dial::decode_event(msg, device_index, idx)
+            {
+                if event.delta != 0 {
+                    let _ = sink.send(CapturedInput::Dial {
+                        control: event.control,
+                        delta: event.delta,
+                    });
                 }
                 return;
             }
