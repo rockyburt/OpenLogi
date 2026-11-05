@@ -111,6 +111,30 @@ impl Config {
             .set_icon(slot, icon);
     }
 
+    /// The keypad key labels for `device_key`, keyed like its bindings, or an
+    /// empty map if it has none (see [`DeviceConfig::key_labels`](super::DeviceConfig::key_labels)).
+    #[must_use]
+    pub fn key_labels(&self, device_key: &str) -> BTreeMap<ButtonId, String> {
+        self.devices
+            .get(device_key)
+            .map(|d| d.key_labels.clone())
+            .unwrap_or_default()
+    }
+
+    /// Set the label `button` shows on `device_key`'s keypad, or clear it with
+    /// `None` (see [`DeviceConfig::key_labels`](super::DeviceConfig::key_labels)).
+    pub fn set_key_label(&mut self, device_key: &str, button: ButtonId, label: Option<String>) {
+        let labels = &mut self
+            .devices
+            .entry(device_key.to_string())
+            .or_default()
+            .key_labels;
+        match label {
+            Some(label) => labels.insert(button, label),
+            None => labels.remove(&button),
+        };
+    }
+
     /// The ordered DPI preset list for `device_key`, or an empty `Vec` if the
     /// device has none configured yet.
     #[must_use]

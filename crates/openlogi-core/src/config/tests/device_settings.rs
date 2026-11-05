@@ -740,3 +740,38 @@ fn gshift_is_held_only_by_a_plain_binding() {
     cfg.set_binding("g502", ButtonId::Forward, Binding::Single(Action::GShift));
     assert!(cfg.uses_gshift("g502"));
 }
+
+#[test]
+fn keypad_key_labels_load_keyed_like_bindings_and_round_trip() {
+    let body = format!(
+        "schema_version = {SCHEMA_VERSION}\n\
+         [devices.\"serial:keypad\".key_labels]\n\
+         gridTopMiddle = \"~\"\n\
+         \"page2:gridMiddle\" = \"Mute\"\n"
+    );
+    let config: Config = toml::from_str(&body).expect("key labels load");
+    let labels = config.key_labels("serial:keypad");
+    assert_eq!(
+        labels
+            .get(&ButtonId::grid(crate::binding::GridKey::TopMiddle))
+            .map(String::as_str),
+        Some("~")
+    );
+    let paged = "page2:gridMiddle"
+        .parse::<ButtonId>()
+        .expect("a paged grid key");
+    assert_eq!(labels.get(&paged).map(String::as_str), Some("Mute"));
+    assert!(config.key_labels("serial:other").is_empty());
+
+    let saved = toml::to_string_pretty(&config).expect("serialize");
+    let reloaded: Config = toml::from_str(&saved).expect("reload");
+    assert_eq!(reloaded.key_labels("serial:keypad"), labels);
+}
+
+#[test]
+fn a_device_without_key_labels_saves_none() {
+    let mut config = Config::default();
+    config.set_device_custom_name("serial:keypad", Some("Pad".into()));
+    let saved = toml::to_string_pretty(&config).expect("serialize");
+    assert!(!saved.contains("key_labels"), "{saved}");
+}

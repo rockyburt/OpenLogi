@@ -214,6 +214,18 @@ Common device fields are:
 - `action_ring`: default and complete per-application eight-slot layouts;
   `action_ring.per_app` takes the same selectors as `per_app_bindings`,
   including the Windows `exe:<filename>` fallback and `app:<alias>` keys
+- `key_labels` for keypads with LCD keys (MX Creative Keypad): text a key
+  shows in place of its default face, keyed like `bindings` (a paged key is
+  `"page2:gridMiddle"`). A key bound to a shortcut shows the chord, such as
+  `` Shift+` ``; the character it types depends on the keyboard layout, so
+  name it here when it should read `~`. Only a bound key shows its label.
+  A label must be 1–12 printable ASCII characters, or the key keeps its
+  default face:
+
+  ```toml
+  [devices."serial:2503wdn0ly88".key_labels]
+  gridTopMiddle = "~"
+  ```
 - `lighting`, `smartshift`, and camera controls / profiles
 - `camera_stream_mode`: the live preview's mode, a table of `width`, `height`
   (pixels) and `fps`. All three are required and must be positive, or the file
