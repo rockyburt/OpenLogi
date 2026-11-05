@@ -16,6 +16,7 @@ use hidpp::register::battery::{
     StatusReading,
 };
 use openlogi_core::device::{BatteryInfo, BatteryLevel, BatteryStatus, DeviceKind};
+use openlogi_device_registry::dialpad::{find_dialpad, find_dialpad_by_wpid};
 use openlogi_device_registry::keypad::find_keypad;
 
 /// Trim NUL padding and whitespace from a `DeviceInformation` serial; an
@@ -99,6 +100,15 @@ pub(crate) fn resolve_device_kind(probed: Option<DeviceKind>, register: DeviceKi
     }
 }
 
+/// The Bolt path's identity override for the pairing register: a per-product
+/// kind claim, by wireless product ID, for a device whose register kind is
+/// wrong. The MX Creative Dialpad pairs as a headset (`0x0d`) and reports no
+/// usable `0x0005` type, so without this it would get a headset's tabs and
+/// no capture plane. `None` leaves the register's own kind in force.
+pub(crate) fn bolt_identity_kind(wpid: u16) -> Option<DeviceKind> {
+    find_dialpad_by_wpid(wpid).map(|_| DeviceKind::Numpad)
+}
+
 /// The direct path's register: a per-product kind claim over the identity
 /// registry, for attached devices that answer HID++ but report no usable
 /// `0x0005` type and have no pairing register to fall back on. Without it
@@ -107,7 +117,8 @@ pub(crate) fn resolve_device_kind(probed: Option<DeviceKind>, register: DeviceKi
 /// `DeviceType` is `None`, is why this exists). Unknown products return
 /// `Unknown`, exactly what the direct path passed before this source existed.
 pub(crate) fn direct_identity_kind(vendor_id: u16, product_id: u16) -> DeviceKind {
-    if find_keypad(vendor_id, product_id).is_some() {
+    if find_keypad(vendor_id, product_id).is_some() || find_dialpad(vendor_id, product_id).is_some()
+    {
         DeviceKind::Numpad
     } else {
         DeviceKind::Unknown
@@ -378,10 +389,10 @@ mod tests {
     use super::{
         BatteryInfo, BatteryLevel, BatteryStatus, ChargeReading, DeviceKind,
         HidppLegacyBatteryStatus, HidppVoltageChargingStatus, StatusReading, UnifyingDeviceKind,
-        charge_register_battery_info, coarse_legacy_battery_level, direct_identity_kind,
-        legacy_battery_info, legacy_battery_level_from_percentage, map_unifying_kind,
-        map_voltage_battery_status, resolve_device_kind, status_register_battery_info,
-        voltage_battery_percentage,
+        bolt_identity_kind, charge_register_battery_info, coarse_legacy_battery_level,
+        direct_identity_kind, legacy_battery_info, legacy_battery_level_from_percentage,
+        map_unifying_kind, map_voltage_battery_status, resolve_device_kind,
+        status_register_battery_info, voltage_battery_percentage,
     };
 
     #[test]
@@ -708,6 +719,22 @@ mod tests {
         );
         assert_eq!(direct_identity_kind(0x046d, 0xb034), DeviceKind::Unknown);
         assert_eq!(direct_identity_kind(0x1234, 0xc354), DeviceKind::Unknown);
+        assert_eq!(
+            direct_identity_kind(0x046d, 0xbc00),
+            DeviceKind::Numpad,
+            "the MX Creative Dialpad over Bluetooth"
+        );
+    }
+
+    #[test]
+    fn bolt_identity_kind_overrides_only_known_products() {
+        // The Dialpad pairs as a headset; its identity claim replaces that.
+        assert_eq!(bolt_identity_kind(0xbc00), Some(DeviceKind::Numpad));
+        assert_eq!(
+            bolt_identity_kind(0xb042),
+            None,
+            "the MX Master 4 keeps its register kind"
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@
 use std::fmt;
 
 pub use openlogi_device_registry::LOGITECH_VENDOR_ID;
+pub use openlogi_device_registry::dialpad::{DialpadDescriptor, MX_CREATIVE_DIALPAD};
 pub use openlogi_device_registry::keypad::KeypadDescriptor;
 use openlogi_device_registry::keypad::find_keypad;
 pub use openlogi_device_registry::receiver::{

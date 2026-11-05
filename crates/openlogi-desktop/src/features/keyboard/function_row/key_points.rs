@@ -35,7 +35,7 @@ use openlogi_core::binding::{
     ButtonId, Cid, GKey, GKeyProfile, GKeySlot, GridKey, GridSlot, KeypadPage, ModeKey,
 };
 use openlogi_core::config::{FunctionKey, GamingKeyMode, KeyModifiers, KeyTrigger};
-use openlogi_core::hid::KeypadDescriptor;
+use openlogi_core::hid::{KeypadDescriptor, MX_CREATIVE_DIALPAD};
 
 use crate::services::assets::ResolvedAsset;
 use crate::state::GamingKeys;
@@ -229,6 +229,9 @@ pub(super) fn key_surface(
             if marks_grid || keypad.is_none() {
                 return KeySurface::Photo(marked);
             }
+        }
+        if let Some(slots) = stock_dialpad_slots(asset) {
+            return KeySurface::Photo(slots);
         }
         if keypad.is_some() {
             return stock_keypad_slots(asset)
@@ -540,6 +543,52 @@ fn stock_keypad_slots(asset: &ResolvedAsset) -> Option<Vec<KeySlotLayout>> {
             y_frac: STOCK_PAGING_ROW_PX / h,
         },
     ))
+}
+
+/// The MX Creative Dialpad's depot, whose stock render
+/// [`stock_dialpad_slots`] was measured on.
+const STOCK_DIALPAD_DEPOT: &str = "mx_creative_dialpad";
+/// That render's size, `front_core.png`.
+const STOCK_DIALPAD_RENDER: (u32, u32) = (1124, 1105);
+/// The centres of the Dialpad's keys on the stock render, in its pixels, in
+/// the face order of [`MX_CREATIVE_DIALPAD`]'s `keys`: two top left beside
+/// the roller, one in each bottom corner beside the dial.
+const STOCK_DIALPAD_KEYS_PX: [(f32, f32); 4] =
+    [(172., 172.), (372., 172.), (172., 930.), (952., 930.)];
+
+/// The Dialpad's keys on its stock render. Its depot marks the dial and the
+/// roller but none of the keys (`device_buttons_image` assigns nothing), so
+/// without this the tab would fall back to a keyboard's F-row. A re-staged
+/// render of another size is no longer the one measured: `None`.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "render dimensions are a few thousand pixels at most"
+)]
+fn stock_dialpad_slots(asset: &ResolvedAsset) -> Option<Vec<KeySlotLayout>> {
+    if asset.depot != STOCK_DIALPAD_DEPOT
+        || (asset.png_width, asset.png_height) != STOCK_DIALPAD_RENDER
+    {
+        return None;
+    }
+    let (w, h) = (STOCK_DIALPAD_RENDER.0 as f32, STOCK_DIALPAD_RENDER.1 as f32);
+    Some(
+        MX_CREATIVE_DIALPAD
+            .keys
+            .iter()
+            .zip(STOCK_DIALPAD_KEYS_PX)
+            .map(|(&cid, (x, y))| {
+                let button = ButtonId::control(cid);
+                KeySlotLayout {
+                    target: KeyTarget::Control(button),
+                    legend: control_legend(button),
+                    point: KeyPoint {
+                        x_frac: x / w,
+                        y_frac: y / h,
+                    },
+                }
+            })
+            .collect(),
+    )
 }
 
 /// The depot's marked keys as key slots, each named by what its slot ID
