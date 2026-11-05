@@ -1305,6 +1305,68 @@ fn keypad_shortcut_keys_show_their_chord_rather_than_one_shared_glyph() {
     );
 }
 
+/// A label the user set for a key replaces its default face — the chord's
+/// text or the action's glyph — follows the key's page, and never lights a
+/// key that does nothing. Text a key cannot draw keeps the default face.
+#[test]
+fn keypad_key_labels_replace_a_bound_key_face_on_its_page() {
+    use crate::watchers::key_display::KeyFace;
+    use crate::watchers::key_display::render::KeyLabel;
+    use openlogi_core::binding::{ActionRingIcon, KeyCombo};
+
+    let chord = |text: &str| text.parse::<KeyCombo>().expect("a valid chord");
+    let mut config = Config::default();
+    let top_middle = ButtonId::grid(GridKey::TopMiddle);
+    config.set_binding(
+        "keypad",
+        top_middle,
+        Binding::Single(Action::CustomShortcut(chord("Shift+`"))),
+    );
+    config.set_key_label("keypad", top_middle, Some("~".into()));
+    // An unbound key stays blank whatever its label says.
+    config.set_key_label(
+        "keypad",
+        ButtonId::grid(GridKey::TopRight),
+        Some("x".into()),
+    );
+    // A label no key can draw keeps the action's own face.
+    config.set_binding(
+        "keypad",
+        ButtonId::grid(GridKey::BottomLeft),
+        Binding::Single(Action::CustomShortcut(chord("F5"))),
+    );
+    config.set_key_label(
+        "keypad",
+        ButtonId::grid(GridKey::BottomLeft),
+        Some("é".into()),
+    );
+    // A label on another page does not show on this one.
+    let paged = "page2:gridMiddle"
+        .parse::<ButtonId>()
+        .expect("a paged grid key");
+    config.set_key_label("keypad", paged, Some("P2".into()));
+    config.set_binding(
+        "keypad",
+        ButtonId::grid(GridKey::Middle),
+        Binding::Single(Action::Copy),
+    );
+    let mut orch = orchestrator(config);
+    orch.devices = vec![wired_keypad("keypad", true)];
+
+    let specs = orch.key_display_specs_for();
+    let [spec] = specs.as_slice() else {
+        panic!("one keypad publishes one spec: {specs:?}");
+    };
+    let label = |text: &str| KeyFace::Label(KeyLabel::new(text).expect("fits a key"));
+    assert_eq!(spec.faces[&GridKey::TopMiddle], label("~"));
+    assert_eq!(spec.faces[&GridKey::TopRight], KeyFace::Blank);
+    assert_eq!(spec.faces[&GridKey::BottomLeft], label("F5"));
+    assert_eq!(
+        spec.faces[&GridKey::Middle],
+        KeyFace::Icon(ActionRingIcon::for_action(&Action::Copy))
+    );
+}
+
 /// Only a device whose panel the registry describes gets a spec — a bound
 /// numpad-kind device on another route does not — and a keypad that is
 /// offline or disabled publishes nothing to paint.

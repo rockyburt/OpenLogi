@@ -251,6 +251,15 @@ pub struct DeviceConfig {
     /// Host-rendered Actions Ring settings and complete per-application layouts.
     #[serde(default, skip_serializing_if = "ActionRingConfig::is_default")]
     pub action_ring: ActionRingConfig,
+    /// Text an LCD keypad key shows in place of its action's face, keyed like
+    /// [`Self::bindings`] — a paged key is `page<n>:gridMiddle`. For a key
+    /// whose default face cannot say what it does: a key bound to
+    /// `Shift+\`` shows that chord, while the character it types (`~` on a US
+    /// layout) depends on the keyboard layout. Only a bound key shows its
+    /// label, and text a key cannot draw leaves the default face. Optional, so
+    /// it needed no schema bump.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub key_labels: BTreeMap<ButtonId, String>,
     /// Ordered list of DPI presets cycled through by
     /// [`Action::CycleDpiPresets`] and indexed by
     /// [`Action::SetDpiPreset`]. Empty means "no presets configured" —
@@ -490,6 +499,7 @@ impl Default for DeviceConfig {
             disabled_gestures: BTreeMap::new(),
             per_app_bindings: BTreeMap::new(),
             action_ring: ActionRingConfig::default(),
+            key_labels: BTreeMap::new(),
             dpi_presets: Vec::new(),
             dpi: None,
             lighting: None,
@@ -641,6 +651,8 @@ struct RawDeviceConfig {
     per_app_bindings: BTreeMap<String, BTreeMap<ButtonId, Action>>,
     #[serde(default)]
     action_ring: ActionRingConfig,
+    #[serde(default, deserialize_with = "deserialize_button_map")]
+    key_labels: BTreeMap<ButtonId, String>,
     #[serde(default, deserialize_with = "deserialize_dpi_presets")]
     dpi_presets: Vec<Dpi>,
     #[serde(default, deserialize_with = "deserialize_optional_dpi")]
@@ -740,6 +752,7 @@ impl From<RawDeviceConfig> for DeviceConfig {
             disabled_gestures: raw.disabled_gestures,
             per_app_bindings: raw.per_app_bindings,
             action_ring: raw.action_ring,
+            key_labels: raw.key_labels,
             dpi_presets: raw.dpi_presets,
             dpi: raw.dpi,
             lighting: raw.lighting,

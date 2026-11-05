@@ -96,11 +96,14 @@ fn keypad_paging_defaults() -> [(ButtonId, Binding); 2] {
 /// `page` is moved onto its physical key ([`ButtonId::grid`], the identity a
 /// capture session reports a press as), slots on other pages are dropped, and
 /// every other button passes through.
+///
+/// Generic over the value so anything keyed like the bindings — a key's
+/// label, say — is projected onto the page by the same rule.
 #[must_use]
-pub fn bindings_on_page(
-    bindings: &BTreeMap<ButtonId, Binding>,
+pub fn bindings_on_page<V: Clone>(
+    bindings: &BTreeMap<ButtonId, V>,
     page: KeypadPage,
-) -> BTreeMap<ButtonId, Binding> {
+) -> BTreeMap<ButtonId, V> {
     bindings
         .iter()
         .filter_map(|(button, binding)| match button.grid_slot() {

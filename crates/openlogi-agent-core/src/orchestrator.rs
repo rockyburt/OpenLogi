@@ -1160,9 +1160,19 @@ impl Orchestrator {
                     &dev.config_key,
                     &self.foreground_key_bindings(&dev.config_key),
                 );
+                // Labels are keyed like the bindings, so they follow the page
+                // by the same projection.
+                let labels = bindings_on_page(
+                    &self.config.key_labels(&dev.config_key),
+                    self.keypad_page(&dev.config_key),
+                );
                 let faces = GridKey::ALL
                     .into_iter()
-                    .map(|key| (key, key_face(bindings.get(&ButtonId::grid(key)))))
+                    .map(|key| {
+                        let button = ButtonId::grid(key);
+                        let label = labels.get(&button).map(String::as_str);
+                        (key, key_face(bindings.get(&button), label))
+                    })
                     .collect();
                 let generation = self.panel_generations.get(&route).copied().unwrap_or(0);
                 Some(KeyDisplaySpec {
@@ -2441,31 +2451,34 @@ fn is_bound_key(binding: &Binding) -> bool {
     binding.key_action().is_some()
 }
 
-/// What a keypad grid key shows for `binding`: blank exactly when the key does
-/// nothing; the shortcut's text when [`Binding::key_action`] sends a key chord
-/// and that text fits a key; else the action's glyph.
+/// What a keypad grid key shows for `binding`, given the user's `label` for
+/// it: blank exactly when the key does nothing; else `label` when a key can
+/// draw it; else the shortcut's text when [`Binding::key_action`] sends a key
+/// chord and that text fits a key; else the action's glyph.
 ///
 /// Every chord action shares the one keyboard glyph, so without its text two
 /// keys bound to different shortcuts are indistinguishable on the panel. The
-/// text is [`Action::label`], the same one the settings app shows.
-fn key_face(binding: Option<&Binding>) -> KeyFace {
-    binding
-        .and_then(Binding::key_action)
-        .map_or(KeyFace::Blank, |action| {
-            let chord = matches!(
-                action,
-                Action::CustomShortcut(_)
-                    | Action::HoldShortcut(_)
-                    | Action::TapKeyHoldingModifiers(_)
-            );
-            chord
-                .then(|| KeyLabel::new(&action.label()))
-                .flatten()
-                .map_or_else(
-                    || KeyFace::Icon(ActionRingIcon::for_action(&action)),
-                    KeyFace::Label,
-                )
-        })
+/// text is [`Action::label`], the same one the settings app shows. A label the
+/// user set wins over both, but never lights an unbound key: a lit key always
+/// does something.
+fn key_face(binding: Option<&Binding>, label: Option<&str>) -> KeyFace {
+    let Some(action) = binding.and_then(Binding::key_action) else {
+        return KeyFace::Blank;
+    };
+    if let Some(label) = label.and_then(KeyLabel::new) {
+        return KeyFace::Label(label);
+    }
+    let chord = matches!(
+        action,
+        Action::CustomShortcut(_) | Action::HoldShortcut(_) | Action::TapKeyHoldingModifiers(_)
+    );
+    chord
+        .then(|| KeyLabel::new(&action.label()))
+        .flatten()
+        .map_or_else(
+            || KeyFace::Icon(ActionRingIcon::for_action(&action)),
+            KeyFace::Label,
+        )
 }
 
 /// Which of `bindings` the keyboard capture session takes over.
